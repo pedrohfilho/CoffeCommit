@@ -66,8 +66,11 @@
   }
 
   /* ---------- planilha ---------- */
+  var CONT = { planilha: 0, cache: 0, detalhe: {} };
+  function conta(tipo, nome) { CONT[tipo]++; CONT.detalhe[nome] = (CONT.detalhe[nome] || 0) + 1; }
   function Faixa(aba, r, c, nr, nc) { this.aba = aba; this.r = r; this.c = c; this.nr = nr; this.nc = nc; }
   Faixa.prototype.getValues = function () {
+    conta('planilha', 'getValues');
     var out = [];
     for (var i = 0; i < this.nr; i++) {
       var linha = [];
@@ -77,14 +80,17 @@
     return out;
   };
   Faixa.prototype.setValues = function (v) {
+    conta('planilha', 'setValues');
     for (var i = 0; i < this.nr; i++) for (var j = 0; j < this.nc; j++) this.aba._set(this.r + i, this.c + j, v[i][j]);
     return this;
   };
   Faixa.prototype.setValue = function (v) {
+    conta('planilha', 'setValue');
     for (var i = 0; i < this.nr; i++) for (var j = 0; j < this.nc; j++) this.aba._set(this.r + i, this.c + j, v);
     return this;
   };
   Faixa.prototype.setNumberFormats = function (f) {
+    conta('planilha', 'setNumberFormats');
     for (var i = 0; i < this.nr; i++) for (var j = 0; j < this.nc; j++) this.aba._fmt[(this.r + i) + ',' + (this.c + j)] = f[i][j];
     return this;
   };
@@ -93,6 +99,7 @@
     return this;
   };
   Faixa.prototype.clearContent = function () {
+    conta('planilha', 'clearContent');
     for (var i = 0; i < this.nr; i++) for (var j = 0; j < this.nc; j++) { var l = this.aba._d[this.r + i - 1]; if (l) l[this.c + j - 1] = ''; }
     return this;
   };
@@ -115,6 +122,7 @@
   };
   Aba.prototype.getName = function () { return this._nome; };
   Aba.prototype.getLastRow = function () {
+    conta('planilha', 'getLastRow');
     for (var r = this._d.length; r >= 1; r--) { var l = this._d[r - 1]; if (l && l.some(function (v) { return v !== '' && v !== null && v !== undefined; })) return r; }
     return 0;
   };
@@ -124,8 +132,14 @@
     return m;
   };
   Aba.prototype.getRange = function (r, c, nr, nc) { return new Faixa(this, r, c, nr || 1, nc || 1); };
-  Aba.prototype.getMaxRows = function () { return this._max; };
-  Aba.prototype.insertRowsAfter = function (pos, n) { this._max += n; };
+  Aba.prototype.getMaxRows = function () { conta('planilha', 'getMaxRows'); return this._max; };
+  Aba.prototype.insertRowsAfter = function (pos, n) { conta('planilha', 'insertRowsAfter'); this._max += n; };
+  Aba.prototype.getDataRange = function () {
+    var ult = 0, col = 0;
+    for (var r = this._d.length; r >= 1; r--) { var l = this._d[r - 1]; if (l && l.some(function (v) { return v !== '' && v !== null && v !== undefined; })) { ult = r; break; } }
+    for (var rr = 0; rr < ult; rr++) { var ll = this._d[rr] || []; for (var c = ll.length; c >= 1; c--) if (ll[c - 1] !== '' && ll[c - 1] !== null && ll[c - 1] !== undefined) { if (c > col) col = c; break; } }
+    return new Faixa(this, 1, 1, Math.max(ult, 1), Math.max(col, 1));
+  };
   Aba.prototype.protect = function () {
     var p = { setDescription: function () { return p; }, addEditor: function () { return p; }, getEditors: function () { return []; }, removeEditors: function () { return p; }, canDomainEdit: function () { return false; }, setDomainEdit: function () { return p; } };
     return p;
@@ -165,8 +179,22 @@
       }
     };
     G.PropertiesService = { getScriptProperties: mkProps };
-    G.CacheService = { getScriptCache: function () { return { get: function (k) { var x = cache[k]; return x && x.ate > Date.now() ? x.v : null; }, put: function (k, v, s) { cache[k] = { v: String(v), ate: Date.now() + (s || 600) * 1000 }; }, remove: function (k) { delete cache[k]; } }; } };
-    G.LockService = { getScriptLock: function () { return { waitLock: function () { if (travas.n > 0) throw new Error('Lock ocupado'); travas.n++; travas.historico++; }, releaseLock: function () { travas.n = Math.max(0, travas.n - 1); }, hasLock: function () { return travas.n > 0; } }; } };
+    var TAM_MAX_CACHE = 100 * 1024;   // o Google recusa valor maior que 100 KB
+    function tamanhoBytes(v) { return utf8(String(v)).length; }
+    function checa(k, v) { if (String(k).length > 250) throw new Error('Argument too large: key'); if (tamanhoBytes(v) > TAM_MAX_CACHE) throw new Error('Argument too large: value'); }
+    G.CacheService = { getScriptCache: function () {
+      var c = {
+        get: function (k) { conta('cache', 'get'); var x = cache[k]; return x && x.ate > Date.now() ? x.v : null; },
+        getAll: function (ks) { conta('cache', 'getAll'); var o = {}; ks.forEach(function (k) { var x = cache[k]; if (x && x.ate > Date.now()) o[k] = x.v; }); return o; },
+        put: function (k, v, s) { conta('cache', 'put'); v = String(v); checa(k, v); cache[k] = { v: v, ate: Date.now() + (s || 600) * 1000 }; },
+        putAll: function (m, s) { conta('cache', 'putAll'); Object.keys(m).forEach(function (k) { checa(k, String(m[k])); }); Object.keys(m).forEach(function (k) { cache[k] = { v: String(m[k]), ate: Date.now() + (s || 600) * 1000 }; }); },
+        remove: function (k) { conta('cache', 'remove'); delete cache[k]; },
+        removeAll: function (ks) { conta('cache', 'removeAll'); ks.forEach(function (k) { delete cache[k]; }); }
+      };
+      return c;
+    } };
+    G.__cacheBruto = cache;
+    G.LockService = { getScriptLock: function () { return { waitLock: function () { if (travas.n > 0) throw new Error('Lock ocupado'); travas.n++; travas.historico++; }, tryLock: function () { if (travas.n > 0) return false; travas.n++; travas.tentativas = (travas.tentativas || 0) + 1; return true; }, releaseLock: function () { travas.n = Math.max(0, travas.n - 1); }, hasLock: function () { return travas.n > 0; } }; } };
     G.Session = { getEffectiveUser: function () { return { getEmail: function () { return 'dono@exemplo.com'; } }; }, getScriptTimeZone: function () { return 'America/Bahia'; } };
     G.MimeType = { CSV: 'text/csv', PLAIN_TEXT: 'text/plain' };
     G.Utilities = {
@@ -195,7 +223,7 @@
       getFileById: function () { return { makeCopy: function (nome, pasta) { drive.arquivos.push({ nome: nome }); return {}; } }; }
     };
     G.HtmlService = {};
-    return { globais: G, planilha: ss, props: props, travas: travas, drive: drive, gatilhos: gatilhos };
+    return { globais: G, planilha: ss, props: props, travas: travas, drive: drive, gatilhos: gatilhos, cont: CONT, cache: cache, zerarCont: function () { CONT.planilha = 0; CONT.cache = 0; CONT.detalhe = {}; } };
   }
 
   var API = { criarAmbiente: criarAmbiente, sha256: sha256 };

@@ -21,7 +21,7 @@ Arquivos `.gs` são o "cérebro" (código que roda nos servidores do Google). Ar
 | `Esquema.gs` | **A lista de todas as tabelas** da planilha (31), com as colunas e os tipos. Dele saem as abas, a validação e o esquema do MySQL |
 | `Core.gs` | **As regras do negócio**: o que acontece quando registra uma venda, um preparo, uma compra, uma perda, uma contagem de estoque, um desfazer, um novo sorteio… |
 | `Views.gs` | **Monta os dados de cada tela** (o que a tela de Venda, Estoque, Painéis etc. precisa mostrar) |
-| `Planilha.gs` | **Lê e grava na planilha** e cria as 33 abas na instalação |
+| `Planilha.gs` | **Lê e grava na planilha** (com cache para ser rápido) e cria as 33 abas na instalação |
 | `Seguranca.gs` | Diz quem está usando o app (sem senha: a pessoa escolhe quem é na primeira vez) |
 | `Exemplos.gs` | Cria **dados de exemplo** para você testar (compras, vendas, clientes) |
 | `Auditoria.gs` | **Confere se os dados estão certos**, gera o esquema do MySQL e exporta CSV |
@@ -34,7 +34,7 @@ Arquivos `.gs` são o "cérebro" (código que roda nos servidores do Google). Ar
 | Arquivo | O que faz |
 |---|---|
 | `servidor.js` | Abre o app no seu computador, em `http://localhost:3000`, com uma planilha de mentira |
-| `teste.js` | Roda **369 verificações automáticas** das regras (venda, estoque, desfazer, sorteio por rodadas, receita por pessoa, painéis conferidos contra os registros, auditoria…) |
+| `teste.js` | Roda **404 verificações automáticas** das regras (venda, estoque, desfazer, sorteio por rodadas, receita por pessoa, painéis conferidos contra os registros, auditoria…) |
 | `planilha-local.js` | A planilha de mentira em si (imita o Google Planilhas) |
 | `carregar.js` | Carrega os arquivos de `src/` dentro da planilha de mentira |
 
@@ -53,6 +53,8 @@ Arquivos `.gs` são o "cérebro" (código que roda nos servidores do Google). Ar
 - **Compra**: valores e quantidades podem ser digitados; uma compra pode ser corrigida (entra a nova e a antiga é desfeita, conferindo o estoque pelo saldo líquido); locais de compra, formas de pagamento e motivos de perda são listas editáveis em Cadastros.
 - **Painéis**: todos os números vêm dos registros (nada é fixo) e podem ser vistos por período: hoje, 7 dias ou tudo. Os painéis de situação (estoque e sorteio) e o payback não dependem do período.
 - **Clientes**: só nome, telefone e e-mail. Na tela de Venda aparecem no máximo 3 resultados da busca, com telefone escondido; a lista completa fica na tela Clientes.
+- **Velocidade**: cada ida ao Google Planilhas custa tempo, então o sistema guarda as tabelas em cache entre um toque e outro, lê cada tabela de uma vez e grava com poucas chamadas. Com o cache aquecido, abrir uma tela não toca na planilha; registrar uma venda faz cerca de 5 chamadas (eram 86). O cache nunca é a verdade: a planilha é. Cada gravação sobe uma "geração" da tabela nas propriedades do script, e o que ficou velho no cache é descartado. Se alguém editar a planilha à mão, o cache é limpo sozinho (`onEdit`); o menu CoffeCommit › Limpar cache faz o mesmo. Se o serviço de cache falhar, o app continua funcionando só com a planilha.
+- **Gravação em duas etapas**: primeiro entram os itens e os livros, e por último o registro principal (venda, preparo, compra…), que é o que "vale". Se a gravação cair no meio, sobra lixo sem registro principal, que não entra em saldo nem total, e a auditoria avisa.
 - **Registro repetido não duplica**: se o celular reenviar a mesma venda por falha de internet, o sistema reconhece e não grava de novo.
 
 ## Acesso
@@ -63,6 +65,7 @@ Isso significa que **o link do app é a chave**: quem tiver o link consegue usar
 
 ## Limites conhecidos
 
+- Depois de colar uma versão nova no Apps Script, rode uma vez CoffeCommit › Instalar / atualizar planilha. Se esquecer, o app avisa na tela em vez de gravar errado.
 - Os arquivos foram testados no ambiente de teste (`local/`) e no navegador, mas **ainda não rodaram no Google de verdade**. Na primeira instalação pode aparecer algum ajuste (permissões, proteção das abas, rotina noturna).
 - Sem internet, a ação não é feita e o app avisa; o toque pode ser repetido sem duplicar.
 - As promoções estão cadastradas, mas ainda não são aplicadas nas vendas.
