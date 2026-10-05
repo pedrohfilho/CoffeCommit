@@ -1,0 +1,727 @@
+<script>
+(function () {
+  'use strict';
+
+  /* ============================ utilidades ============================ */
+  var raiz = document.getElementById('raiz');
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function nb(s) {
+    return String(s).replace(/R\$ (?=\d)/g, 'R$\u00A0').replace(/(\d) (ml|g|un|L|vendas|venda|copos|copo|números|número|%)(?![A-Za-zÀ-ú])/g, '$1\u00A0$2')
+      .replace(/N\u00BA (\d)/g, 'N\u00BA\u00A0$1').replace(/c\u00F3digo (\d)/g, 'c\u00F3digo\u00A0$1').replace(/(\d) de (\d)/g, '$1\u00A0de\u00A0$2');
+  }
+  function milhar(s) { return String(s).replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+  function fmtN(n) { n = Math.round(n * 10) / 10; var p = Math.abs(n).toString().split('.'); return (n < 0 ? '\u2212' : '') + milhar(p[0]) + (p[1] ? ',' + p[1] : ''); }
+  function fmtR(c) { var neg = c < 0, v = Math.abs(Math.round(c)), cc = String(v % 100); if (cc.length < 2) cc = '0' + cc; return (neg ? '\u2212' : '') + 'R$\u00A0' + milhar(Math.floor(v / 100)) + ',' + cc; }
+  function fmtQ(n, un) { return nb(fmtN(n) + ' ' + un); }
+  function pad4(n) { return String(n).padStart(4, '0'); }
+  function uuid() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    var h = '0123456789abcdef', s = ''; for (var i = 0; i < 36; i++) { if (i === 8 || i === 13 || i === 18 || i === 23) s += '-'; else if (i === 14) s += '4'; else s += h[Math.floor(Math.random() * 16)]; } return s;
+  }
+  var memoria = {};
+  function ler(k) { try { return window.localStorage.getItem(k); } catch (e) { return memoria[k] || null; } }
+  function guardar(k, v) { try { if (v == null) window.localStorage.removeItem(k); else window.localStorage.setItem(k, v); } catch (e) { if (v == null) delete memoria[k]; else memoria[k] = v; } }
+
+  /* ============================ estado ============================ */
+  var TITULOS = { venda: 'Venda', clientes: 'Clientes', preparo: 'Preparo', estoque: 'Estoque', paineis: 'Painéis', mais: 'Mais', compra: 'Compra', fechamento: 'Fechamento do dia', cadastros: 'Cadastros', financeiro: 'Financeiro', historico: 'Histórico', sistema: 'Sistema' };
+  var SUBTELAS = ['compra', 'fechamento', 'cadastros', 'financeiro', 'historico', 'sistema'];
+  var SUBS = {
+    estoque: [['saldos', 'Saldos'], ['movs', 'Movimentos'], ['mexer', 'Ajustar / transferir']],
+    cadastros: [['materiais', 'Materiais'], ['produtos', 'Produtos e preços'], ['receitas', 'Receitas'], ['listas', 'Listas'], ['promos', 'Promoções']],
+    financeiro: [['resultado', 'Resultado e payback'], ['lanc', 'Lançamentos']],
+    clientes: [['lista', 'Clientes'], ['sorteio', 'Sorteio']],
+    paineis: [['geral', 'Geral'], ['vendas', 'Vendas'], ['estoque', 'Estoque'], ['compras', 'Compras'], ['producao', 'Produção'], ['fin', 'Financeiro'], ['sorteio', 'Sorteio']]
+  };
+  var S = {
+    uid: null, user: null, usuarios: [], tela: 'venda', sub: { estoque: 'saldos', cadastros: 'materiais', financeiro: 'resultado', paineis: 'geral', clientes: 'lista' },
+    v: {}, msg: null, ocupado: 0, ids: {}, seq: 0,
+    cart: {}, pay: null, ticket: null, vs: { sim: false, n: 1, cliente: null, busca: '', res: [], total: 0, ativa: false },
+    prep: { litros: 1, quem: null, plan: {}, aj: {} }, compra: { mat: null, n: 1, valorTxt: '', valorManual: false, forn: null, corrige: null, novoLocal: '' },
+    periodo: 'hoje', est: { contar: null }, rec: null, lista: { novo: { fornecedor: '', forma_pagamento: '', motivo_perda: '' }, edit: null },
+    perda: { ml: 50, motivo: null }, mov: { tipo: 'AJUSTE', mat: null, de: null, qtd: 0, txt: '0' }, lanc: { tipo: 'REEMBOLSO', uid: null, valor: 1000 },
+    nm: { nome: '', un: 'g' }, cli: { q: '', nq: '', form: null }, zerar: false, novoSorteio: false, auditoria: null
+  };
+
+  /* ============================ comunicação ============================ */
+  function chamar(nome, p) {
+    p = p || {};
+    return new Promise(function (ok, falha) {
+      var json = JSON.stringify(p);
+      if (window.google && google.script && google.script.run) {
+        google.script.run.withSuccessHandler(function (r) { try { ok(JSON.parse(r)); } catch (e) { falha('Resposta inválida do servidor.'); } })
+          .withFailureHandler(function (e) { falha((e && e.message) || 'Falha de comunicação.'); }).api(S.uid, nome, json);
+      } else if (window.__apiLocal) {
+        setTimeout(function () { try { ok(JSON.parse(window.__apiLocal(S.uid, nome, json))); } catch (e) { falha(e.message); } }, 0);
+      } else {
+        fetch('/api', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: S.uid, nome: nome, p: p }) })
+          .then(function (r) { return r.json(); }).then(ok).catch(function (e) { falha(e.message || 'Sem conexão.'); });
+      }
+    });
+  }
+  function chaveVista(q) { return q.tela + (SUBS[q.tela] ? ':' + q.sub : '') + (q.tela === 'paineis' ? ':' + q.periodo : ''); }
+  function consulta() { var t = S.tela, sub = S.sub[t]; var q = { tela: t, sub: sub }; if (t === 'clientes') q.q = sub === 'sorteio' ? S.cli.nq : S.cli.q; if (t === 'paineis') q.periodo = S.periodo; return q; }
+  function V() { return S.v[chaveVista(consulta())] || null; }
+  function guardarVista(q, view) { S.v[chaveVista(q)] = view; }
+
+  function ocupar(f) { S.ocupado += f ? 1 : -1; if (S.ocupado < 0) S.ocupado = 0; }
+  function aviso(txt, erro) { S.msg = { txt: txt, erro: !!erro }; }
+  function sair(txt) { S.uid = null; S.user = null; guardar('cafe_usuario', null); S.v = {}; S.msg = txt ? { txt: txt, erro: true } : null; boot(); }
+
+  function carregar() {
+    if (S.tela === 'mais') { render(); return; }
+    if (S.tela === 'clientes' && S.sub.clientes === 'form') { render(); return; }
+    var q = consulta();
+    ocupar(true); render();
+    chamar('ver', q).then(function (r) {
+      ocupar(false);
+      if (r.sessao === false) return sair(r.erro);
+      if (!r.ok) { aviso(r.erro, true); render(); return; }
+      guardarVista(q, r); iniciarFormularios(q.tela, r); render();
+    }).catch(function (e) { ocupar(false); aviso('Sem conexão ou erro: ' + e, true); render(); });
+  }
+
+  /* executa uma ação no servidor e atualiza a tela atual na mesma chamada */
+  function agir(nome, p, opc) {
+    opc = opc || {};
+    if (S.ocupado) return;
+    var q = opc.semVista ? null : consulta();
+    p = Object.assign({}, p); if (q) p._ver = q;
+    ocupar(true); render();
+    chamar(nome, p).then(function (r) {
+      ocupar(false);
+      if (r.sessao === false) return sair(r.erro);
+      if (!r.ok) { aviso(r.erro, true); render(); return; }
+      aviso(r.msg || 'Pronto.', false);
+      if (r.view && q) { guardarVista(q, r.view); iniciarFormularios(q.tela, r.view); }
+      if (opc.depois) opc.depois(r);
+      render();
+    }).catch(function (e) { ocupar(false); aviso('Sem conexão. Nada foi perdido: toque de novo para repetir.', true); render(); });
+  }
+  function idDe(tipo) { if (!S.ids[tipo]) S.ids[tipo] = uuid(); return S.ids[tipo]; }
+  function limparId(tipo) { delete S.ids[tipo]; }
+
+  /* valores iniciais dos formulários quando a tela chega */
+  function iniciarFormularios(tela, v) {
+    if (tela === 'venda') { if (!S.pay || !v.formas.some(function (f) { return f.id === S.pay; })) S.pay = v.formas[0] && v.formas[0].id; }
+    if (tela === 'preparo') { if (!S.prep.quem) S.prep.quem = S.user.id; }
+    if (tela === 'cadastros' && S.rec === null) S.rec = S.user.id;
+    if (tela === 'compra') {
+      if (!S.compra.mat || !v.materiais.some(function (m) { return m.id === S.compra.mat; })) { S.compra.mat = v.materiais[0].id; S.compra.n = 1; S.compra.valorTxt = moedaTxt(v.materiais[0].precoPadrao); S.compra.valorManual = false; }
+      if (!S.compra.valorTxt) S.compra.valorTxt = moedaTxt(v.materiais[0].precoPadrao * S.compra.n);
+      if (!S.compra.forn || !v.fornecedores.some(function (f) { return f.id === S.compra.forn; })) S.compra.forn = v.fornecedores[0] && v.fornecedores[0].id;
+    }
+    if (tela === 'fechamento') { if (!S.perda.motivo && v.motivos.length) S.perda.motivo = v.motivos[0].id; if (S.perda.ml > Math.max(50, v.diff)) S.perda.ml = Math.max(50, Math.floor(v.diff / 50) * 50 || 50); }
+    if (tela === 'estoque' && v.materiais) { if (!S.mov.mat) S.mov.mat = v.materiais[0].id; if (!S.mov.de) S.mov.de = S.user.id; }
+    if (tela === 'financeiro' && v.usuarios) { if (!S.lanc.uid) S.lanc.uid = S.user.id; }
+  }
+
+  /* números digitados: aceita vírgula */
+  function num(t) { var x = String(t == null ? '' : t).replace(/\s/g, '').replace('R$', '').replace(',', '.'); return x === '' || x === '-' ? NaN : Number(x); }
+  function moedaTxt(c) { return (c / 100).toFixed(2).replace('.', ','); }
+  function centsDe(t) { var n = num(t); return isNaN(n) ? NaN : Math.round(n * 100); }
+  function r3(n) { return Math.round(n * 1000) / 1000; }
+  function txtN(n) { return String(r3(n)).replace('.', ','); }
+
+  /* ============================ blocos de tela ============================ */
+  function chip(txt, on, a, v) { return '<button type="button" class="chip' + (on ? ' on' : '') + '" aria-pressed="' + (!!on) + '" data-a="' + a + '" data-v="' + esc(v) + '">' + esc(nb(txt)) + '</button>'; }
+  function btn(txt, a, v, o) { o = o || {}; return '<button type="button" class="' + (o.cls || 'btn') + '"' + (o.dis ? ' disabled' : '') + ' data-a="' + a + '"' + (v != null ? ' data-v="' + esc(v) + '"' : '') + '>' + esc(nb(txt)) + '</button>'; }
+  function ghost(txt, a, v) { return btn(txt, a, v, { cls: 'ghost' }); }
+  function sb(txt, a, v, rot, p) { return '<button type="button" class="sb' + (p ? ' p' : '') + '" aria-label="' + esc(rot) + '" data-a="' + a + '" data-v="' + esc(v) + '">' + txt + '</button>'; }
+  function step(txt, a, vMenos, vMais, rotMenos, rotMais, w) { return '<div class="step">' + sb('\u2212', a, vMenos, rotMenos) + '<span class="val"' + (w ? ' style="min-width:' + w + 'px"' : '') + '>' + esc(nb(txt)) + '</span>' + sb('+', a, vMais, rotMais, true) + '</div>'; }
+  /* contador com campo para digitar */
+  function stepIn(id, valor, rot, a, vMenos, vMais, rotMenos, rotMais, w) {
+    return '<div class="step">' + sb('\u2212', a, vMenos, rotMenos) + '<input id="' + id + '" data-i="' + id + '" class="inp" type="text" inputmode="decimal" autocomplete="off" aria-label="' + esc(rot) + '" value="' + esc(valor) + '" style="width:' + (w || 84) + 'px;min-width:0;text-align:center;padding-left:4px;padding-right:4px">' + sb('+', a, vMais, rotMais, true) + '</div>';
+  }
+  function card(h, cls, estilo) { return '<div class="card' + (cls ? ' ' + cls : '') + '"' + (estilo ? ' style="' + estilo + '"' : '') + '>' + h + '</div>'; }
+  function lbl(t) { return '<div class="lbl">' + esc(nb(t)) + '</div>'; }
+  function muted(t, cls) { return '<div class="muted' + (cls ? ' ' + cls : '') + '">' + esc(nb(t)) + '</div>'; }
+  function linha(a, b) { return '<div class="row">' + a + b + '</div>'; }
+  function entrada(id, valor, o) { o = o || {}; return '<input id="' + id + '" class="inp' + (o.cls ? ' ' + o.cls : '') + '" type="' + (o.tipo || 'text') + '" autocomplete="off"' + (o.ph ? ' placeholder="' + esc(o.ph) + '"' : '') + (o.modo ? ' inputmode="' + o.modo + '"' : '') + ' data-i="' + id + '" value="' + esc(valor) + '">'; }
+  function rotulo(id, t) { return '<label class="lbl" for="' + id + '">' + esc(t) + '</label>'; }
+  function corpo(h, rodape) { return '<div class="body">' + h + '</div>' + (rodape ? '<div class="foot">' + rodape + '</div>' : ''); }
+  function carregando() { return '<div class="body">' + card(muted('Carregando\u2026')) + '</div>'; }
+  function tiles(l) { return '<div class="tiles">' + l.map(function (x) { return '<div class="tile">' + lbl(x.lbl) + '<div class="tv">' + esc(x.val) + '</div></div>'; }).join('') + '</div>'; }
+  function barras(l) { return '<div class="list">' + l.map(function (b) { return '<div><div class="row"><span class="nm">' + esc(b.lbl) + '</span><span class="nm">' + esc(b.val) + '</span></div><div class="bar"><i style="width:' + b.pct + '%"></i></div></div>'; }).join('') + '</div>'; }
+  function linhasNum(l) { return l.map(function (n) { return 'N\u00BA ' + pad4(n.numero) + '   c\u00F3digo ' + n.token; }).join('\n'); }
+
+  /* ============================ VENDA ============================ */
+  function fixNb(html) { return html.replace(/>([^<]+)</g, function (m, t) { return '>' + nb(t) + '<'; }); }
+  function parcial(id, html) { var el = document.getElementById(id); if (!el) return false; el.innerHTML = fixNb(html); return true; }
+  function htmlResVenda() {
+    var vs = S.vs;
+    return vs.res.map(function (c, i) { return '<button type="button" class="res" data-a="vs-pick" data-v="' + i + '"><span class="nm">' + esc(c.nome) + '</span><span class="muted">' + esc(c.contato) + '</span></button>'; }).join('') +
+      muted(!vs.ativa ? 'Digite o nome, telefone ou e-mail do cliente.' : !vs.res.length ? 'Nenhum cliente encontrado. Cadastre abaixo.' : vs.total > 3 ? 'Mostrando 3 de ' + vs.total + ': digite mais para refinar.' : '');
+  }
+  function totaisCarrinho(v) {
+    var t = { copos: 0, ml: 0, cents: 0 };
+    v.produtos.forEach(function (p) { var n = S.cart[p.id] || 0; t.copos += n; t.ml += n * p.cafeMl; t.cents += n * p.preco; });
+    return t;
+  }
+  function telaVenda() {
+    var v = V(); if (!v) return carregando();
+    var t = totaisCarrinho(v), vs = S.vs, nS = vs.sim ? vs.n : 0, totS = nS * v.sorteio.preco, saldo = v.saldoMl;
+    var h = '';
+    if (S.ticket) h += card(linha(lbl('Números do sorteio de ' + S.ticket.cliente), ghost('Ok', 'ticket-ok')) + '<div class="numbox"><div class="mono">' + esc(linhasNum(S.ticket.numeros)) + '</div></div>' + muted('Anote para o cliente: cada número tem o seu código.'), 'ticket');
+    h += card('<div class="row" style="flex-wrap:wrap">' + '<div>' + lbl('Café pronto para vender hoje') + '<div class="big">' + esc(fmtQ(saldo, 'ml')) + '</div></div>' + ghost('Fechar o dia', 'ir', 'fechamento') + '</div>' +
+      muted(saldo < 0 ? 'Vendeu ' + fmtN(-saldo) + ' ml a mais que o preparado. Registre o preparo que faltou ou ajuste no Fechamento.' : saldo === 0 ? 'Sem café pronto. Registre um preparo antes de vender.' : 'Cada venda desconta o café usado no copo. O que sobrar no fim do dia vira perda.') +
+      (saldo <= 0 ? ghost('Registrar preparo', 'ir', 'preparo') : ''), saldo <= 0 ? 'warn' : '');
+    h += '<div class="list rspan3">' + v.produtos.map(function (p) {
+      var n = S.cart[p.id] || 0;
+      return '<div class="prow' + (n > 0 ? ' sel' : '') + '"><div><div class="pn">' + esc(p.nome) + '</div>' + muted(nb(p.tamanho + ' ml \u00B7 ' + fmtR(p.preco))) + '</div>' +
+        step(String(n), 'cart', p.id + '|-1', p.id + '|1', 'Tirar um ' + p.nome + ' de ' + p.tamanho + ' ml', 'Adicionar um ' + p.nome + ' de ' + p.tamanho + ' ml', 36) + '</div>';
+    }).join('') + '</div>';
+    var sorteio = lbl('Sorteio') + '<div class="nm">O cliente quer participar?</div><div class="yn">' + chip('Não', !vs.sim, 'vs-nao', '') + chip('Sim', vs.sim, 'vs-sim', '') + '</div>' +
+      muted('Cada número custa ' + fmtR(v.sorteio.preco) + ' \u00B7 ' + v.sorteio.nAtivos + ' de ' + v.sorteio.meta + ' números no sorteio nº ' + v.sorteio.rodada);
+    if (vs.sim && !vs.cliente) {
+      sorteio += '<div class="col">' + rotulo('vs-busca', 'Buscar cliente') + entrada('vs-busca', vs.busca, { ph: 'Nome, telefone ou e-mail' }) +
+        '<div id="vs-res" class="dc">' + htmlResVenda() + '</div>' + ghost('Cadastrar cliente novo', 'vs-novo') + '</div>';
+    } else if (vs.sim) {
+      sorteio += '<div class="col"><div class="selcli"><div><div class="nm">' + esc(vs.cliente.nome) + '</div>' + muted(vs.cliente.contato) + '</div>' + ghost('Trocar', 'vs-trocar') + '</div>' +
+        linha(lbl('Quantos números?'), stepIn('vs-n-in', String(vs.n), 'Quantidade de números', 'vs-n', '-1', '1', 'Tirar um número do sorteio', 'Adicionar um número do sorteio', 64)) + muted('Pode digitar a quantidade (de 1 a 99).') + '</div>';
+    }
+    h += card(sorteio);
+    h += card(lbl('Últimas vendas de hoje') + '<div class="rows">' + v.ultimas.map(function (u) {
+      return '<div class="it"><div><div class="nm">' + esc(nb(u.texto)) + '</div>' + muted(u.hora + ' \u00B7 ' + u.usuario + ' \u00B7 ' + u.forma) + '</div><div class="right"><div class="nm">' + esc(fmtR(u.total)) + '</div>' + ghost('Desfazer', 'estornar', 'venda|' + u.id) + '</div></div>';
+    }).join('') + '</div>' + (v.ultimas.length ? '' : muted('Nenhuma venda registrada hoje.')));
+    var bloq = v.fechado || (t.copos === 0 && !vs.sim) || (vs.sim && !vs.cliente);
+    var av = v.fechado ? 'Dia fechado. Reabra em Fechamento do dia para vender.' : (t.copos > 0 && t.ml > saldo ? 'Passa do café pronto (faltam ' + fmtN(t.ml - Math.max(0, saldo)) + ' ml). Dá para registrar mesmo assim e acertar no Fechamento.' : (vs.sim && !vs.cliente ? 'Escolha o cliente dos números do sorteio.' : ''));
+    var partes = []; if (t.copos) partes.push(t.copos + (t.copos > 1 ? ' copos' : ' copo') + ' \u00B7 ' + fmtN(t.ml) + ' ml de café'); if (nS) partes.push(nS + (nS === 1 ? ' número' : ' números') + ' do sorteio');
+    var f = (av ? card('<div class="muted neg">' + esc(nb(av)) + '</div>', 'warn') : '') +
+      '<div class="chips">' + v.formas.map(function (x) { return chip(x.nome, S.pay === x.id, 'pay', x.id); }).join('') + '</div>' +
+      linha(muted(partes.length ? partes.join(' + ') : 'Nada no pedido'), '<div class="tot">' + esc(fmtR(t.cents + totS)) + '</div>') + btn('Registrar venda', 'venda-ok', null, { dis: bloq || S.ocupado });
+    return corpo(h, f);
+  }
+
+  /* ============================ PREPARO ============================ */
+  function consumoPrev(v, litros, plan, quem) {
+    var c = {}, r = v.receitaPor[quem] || v.receitaPor[Object.keys(v.receitaPor)[0]], ch = v.chaves, cafePlano = 0;
+    function add(id, q) { if (!id || !(q > 0)) return; c[id] = Math.round(((c[id] || 0) + q) * 1000) / 1000; }
+    add(ch.cafe, litros * r.colheres * r.gPorColher); add(ch.filtro, Math.ceil(litros * r.filtros - 1e-9)); add(ch.acucar, litros * r.acucar); add(ch.agua, litros * r.agua);
+    v.produtos.forEach(function (p) { var n = plano(p.id); if (!n) return; cafePlano += n * p.cafeMl; add(ch.leite, n * p.leiteMl); add(ch.canela, n * p.canelaG); add(v.copoPorVariante[p.id], n); });
+    function plano(id) { return plan[id] || 0; }
+    return { c: c, cafePlano: cafePlano, receita: r };
+  }
+  function realPrev(v, mid) { var calc = consumoPrev(v, S.prep.litros, S.prep.plan, S.prep.quem); return (mid in S.prep.aj) ? S.prep.aj[mid] : (calc.c[mid] || 0); }
+  function telaPreparo() {
+    var v = V(); if (!v) return carregando();
+    var pr = S.prep, cap = pr.litros * 1000, calc = consumoPrev(v, pr.litros, pr.plan, pr.quem), mats = {}, falta = [], nAj = 0, rr = calc.receita, nomeQ = nomeDe(v.usuarios, pr.quem);
+    v.materiais.forEach(function (m) { mats[m.id] = m; });
+    var ids = Object.keys(calc.c); Object.keys(pr.aj).forEach(function (m) { if (ids.indexOf(m) < 0) ids.push(m); });
+    var linhas = ids.map(function (mid) {
+      var m = mats[mid]; if (!m) return '';
+      var padrao = calc.c[mid] || 0, real = (mid in pr.aj) ? pr.aj[mid] : padrao, tem = ((v.saldos[pr.quem] || {})[mid]) || 0, ok = tem + 1e-9 >= real, mudou = Math.abs(real - padrao) > 1e-9;
+      if (real > 0 && !ok) falta.push(m.nome); if (mudou) nAj++;
+      return '<div class="it"><div><div class="nm">' + esc(m.nome) + '</div><div class="muted' + (ok ? '' : ' neg') + '">' + esc(nb('estoque de ' + nomeQ + ': ' + fmtN(tem) + ' ' + m.un + (mudou ? ' \u00B7 a receita manda ' + fmtN(padrao) + ' ' + m.un : ''))) + '</div></div>' +
+        step(fmtQ(real, m.un), 'prep-aj', mid + '|-1', mid + '|1', 'Diminuir ' + m.nome, 'Aumentar ' + m.nome, 92) + '</div>';
+    }).join('');
+    var livres = v.materiais.filter(function (m) { return ids.indexOf(m.id) < 0; });
+    var h = card(lbl('Litros preparados na cafeteira') + linha(sb('\u2212', 'prep-litros', '-0.5', 'Diminuir meio litro'), '<div style="text-align:center"><div class="big">' + esc(fmtN(pr.litros) + ' L') + '</div>' + muted(fmtN(cap) + ' ml de café base') + '</div>' + sb('+', 'prep-litros', '0.5', 'Aumentar meio litro', true)) +
+      lbl('Quem preparou') + '<div class="chips">' + v.usuarios.map(function (u) { return chip(u.nome, pr.quem === u.id, 'prep-quem', u.id); }).join('') + '</div>');
+    h += card(lbl('Quantos copos vai servir deste preparo') + '<div class="rows">' + v.produtos.map(function (p) {
+      var n = pr.plan[p.id] || 0, det = p.cafeMl + ' ml de café' + (p.leiteMl ? ' + ' + p.leiteMl + ' ml de leite' : '') + (p.canelaG ? ' + ' + fmtN(p.canelaG) + ' g de canela' : '');
+      return '<div class="it"><div><div class="nm">' + esc(nb(p.nome + ' ' + p.tamanho + ' ml')) + '</div>' + muted(det) + '</div>' + step(String(n), 'prep-plan', p.id + '|-1', p.id + '|1', 'Tirar um ' + p.nome + ' de ' + p.tamanho + ' ml do plano', 'Adicionar um ' + p.nome + ' de ' + p.tamanho + ' ml ao plano', 32) + '</div>';
+    }).join('') + '</div>' + linha('<div class="nm">Café usado</div>', '<div class="mid">' + esc(nb(fmtN(calc.cafePlano) + ' de ' + fmtN(cap) + ' ml')) + '</div>') +
+      muted(calc.cafePlano > cap ? 'O plano passa do volume preparado. Aumente os litros ou tire copos.' : 'Sobram ' + fmtN(cap - calc.cafePlano) + ' ml (resíduo da cafeteira e reserva).'), calc.cafePlano > cap ? 'warn' : '');
+    h += card(lbl('Materiais deste preparo (pode editar)') +
+      muted('Receita de ' + nomeQ + (rr.propria ? ' (própria)' : ' (padrão da casa)') + ': ' + fmtN(rr.colheres) + ' colheres de ' + fmtN(rr.gPorColher) + ' g por litro \u00B7 ' + (rr.filtros ? fmtN(rr.filtros) + ' filtro(s) por litro' : 'sem filtro') + (rr.acucar ? ' \u00B7 ' + fmtN(rr.acucar) + ' g de açúcar por litro' : '')) +
+      '<div class="rows">' + linhas + '</div>' +
+      (livres.length ? lbl('Usou mais alguma coisa? (ex.: açúcar)') + '<div class="chips">' + livres.map(function (m) { return chip('+ ' + m.nome, false, 'prep-add', m.id); }).join('') + '</div>' : '') +
+      muted('Os ajustes valem só para este preparo (mudar litros, copos ou quem prepara recalcula). A baixa sai do estoque de quem preparou.') +
+      '<div class="row2">' + (nAj ? ghost('Voltar ao que a receita manda', 'prep-aj-limpar') : '') + ghost('Editar a receita de ' + nomeQ, 'prep-receita') + '</div>');
+    h += card(lbl('Preparos de hoje') + '<div class="rows">' + v.hoje.map(function (p) {
+      return '<div class="it"><div><div class="nm">' + esc(nb(fmtN(p.litros) + ' L \u00B7 ' + p.quem)) + '</div>' + muted(p.hora + ' \u00B7 plano de ' + p.copos + ' copos') + '</div>' + ghost('Desfazer', 'estornar', 'preparo|' + p.id) + '</div>';
+    }).join('') + '</div>' + (v.hoje.length ? '' : muted('Nenhum preparo registrado hoje.')));
+    var av = v.fechado ? 'Dia fechado. Reabra em Fechamento do dia para registrar.' : falta.length ? 'Falta estoque de ' + falta.join(', ') + ' para ' + nomeQ + '. Registre a compra, transfira em Estoque ou ajuste a quantidade acima.' : calc.cafePlano > cap ? 'O plano passa do volume preparado.' : '';
+    return corpo(h, (av ? card('<div class="muted neg">' + esc(nb(av)) + '</div>', 'warn') : '') + btn('Registrar preparo', 'prep-ok', null, { dis: !!av || S.ocupado }));
+  }
+  function nomeDe(lista, id) { for (var i = 0; i < lista.length; i++) if (lista[i].id === id) return lista[i].nome; return id; }
+
+  /* ============================ COMPRA ============================ */
+  function telaCompra() {
+    var v = V(); if (!v) return carregando();
+    var cp = S.compra, m = v.materiais.filter(function (x) { return x.id === cp.mat; })[0] || v.materiais[0], qtd = cp.n * m.pacote, hist = v.hist[m.id], cents = centsDe(cp.valorTxt), valido = !isNaN(cents) && cents > 0;
+    var h = '';
+    if (cp.corrige) h += card('<div class="nm">Corrigindo a compra #' + cp.corrige.numero + '</div>' + muted('Ao salvar, a compra antiga é desfeita e esta entra no lugar. Se o estoque não permitir, o sistema avisa.') + ghost('Cancelar correção', 'cp-cancela'), 'warn');
+    h += card(lbl('Material') + '<div class="chips">' + v.materiais.map(function (x) { return chip(x.nome, x.id === m.id, 'cp-mat', x.id); }).join('') + '</div>' + ghost('Cadastrar material novo', 'ir-cad', 'materiais') +
+      linha(lbl('Embalagens compradas'), stepIn('cp-n-in', String(cp.n), 'Embalagens compradas', 'cp-n', '-1', '1', 'Diminuir embalagens', 'Aumentar embalagens', 56)) + muted('Cada embalagem: ' + fmtN(m.pacote) + ' ' + m.un + ' \u00B7 total ' + fmtN(qtd) + ' ' + m.un) +
+      linha(lbl('Valor pago (R$)'), stepIn('cp-val-in', cp.valorTxt, 'Valor pago em reais', 'cp-val', '-50', '50', 'Diminuir valor', 'Aumentar valor', 96)) + muted('Pode digitar o valor, por exemplo 31,70.') +
+      lbl('Onde comprou') + '<div class="chips">' + v.fornecedores.map(function (f) { return chip(f.nome, f.id === cp.forn, 'cp-forn', f.id); }).join('') + '</div>' +
+      rotulo('cp-novo-local', 'Outro local') + '<div class="addlinha">' + entrada('cp-novo-local', cp.novoLocal, { ph: 'Novo local (ex.: Atacadão)' }) + btn('Adicionar', 'cp-add-local', null, { dis: S.ocupado }) + '</div>');
+    h += card(lbl('O sistema calcula sozinho') + linha('<div class="nm">Entra no estoque de ' + esc(S.user.nome) + '</div>', '<div class="mid">+' + esc(fmtQ(qtd, m.un)) + '</div>') + linha('<div class="nm">Custo por unidade</div>', '<div class="mid">' + esc(nb(valido ? 'R$ ' + (cents / qtd / 100).toFixed(3).replace('.', ',') + ' / ' + m.un : '\u2014')) + '</div>'), 'warn');
+    h += card(lbl('Histórico de preços deste material (por pacote)') + (hist ? '<div class="rows">' + [['Menor preço', hist.menor], ['Maior preço', hist.maior], ['Preço médio', hist.medio], ['Último preço', hist.ultimo]].map(function (x) { return '<div class="it"><div class="nm">' + x[0] + '</div><div class="mid">' + esc(fmtR(x[1])) + '</div></div>'; }).join('') + '</div>' + lbl('Últimas compras deste material') + '<div class="rows">' + hist.ultimas.map(function (u) { return '<div class="it"><div class="muted">' + esc(u.dia + ' \u00B7 ' + u.forn) + '</div><div class="nm">' + esc(fmtR(u.valor)) + '</div></div>'; }).join('') + '</div>' : muted('Ainda não há compras deste material.')));
+    h += card(lbl('Compras recentes (todas)') + '<div class="rows">' + v.recentes.map(function (r) { return '<div class="it"><div><div class="nm">' + esc(r.texto) + '</div>' + muted(r.meta) + '</div><div class="right">' + ghost('Corrigir', 'cp-corrigir', r.id) + ghost('Desfazer', 'estornar', 'compra|' + r.id) + '</div></div>'; }).join('') + '</div>' + (v.recentes.length ? '' : muted('Nenhuma compra registrada.')) + ghost('Gerenciar locais de compra', 'ir-cad', 'listas'));
+    return corpo(h, btn(cp.corrige ? 'Salvar correção' : 'Registrar compra', 'cp-ok', null, { dis: S.ocupado || !valido }));
+  }
+
+  /* ============================ FECHAMENTO ============================ */
+  function telaFechamento() {
+    var v = V(); if (!v) return carregando();
+    var diff = v.diff, h = '';
+    h += card(linha('<div class="nm">Produzido hoje</div>', '<div class="mid">' + esc(fmtQ(v.produzidoMl, 'ml')) + '</div>') +
+      '<div class="row it"><div><div class="nm">Vendido</div>' + muted(v.copos + ' copos \u00B7 ' + fmtR(v.reais)) + '</div><div class="mid">' + esc(fmtQ(v.vendidoMl, 'ml')) + '</div></div>' +
+      '<div class="row it"><div class="nm">Perda registrada</div><div class="mid">' + esc(fmtQ(v.perdidoMl, 'ml')) + '</div></div>');
+    h += card('<div class="nm">' + esc(nb(diff === 0 ? 'Tudo explicado: o dia fecha certinho' : diff > 0 ? 'Faltam ' + fmtN(diff) + ' ml para explicar' : 'As vendas passaram do café preparado em ' + fmtN(-diff) + ' ml')) + '</div>', diff === 0 ? 'ok' : 'warn');
+    if (diff < 0 && !v.fechado) h += card(lbl('Vendeu mais do que foi preparado') + muted('Provavelmente um preparo não foi lançado. Lance o preparo (o material sai do estoque de quem preparou) ou, se não der para lançar agora, faça só o ajuste do café.') +
+      btn('Registrar o preparo que faltou', 'fe-faltou') + ghost('Só ajustar o café (+' + fmtN(-diff) + ' ml)', 'fe-acerto'), 'warn');
+    if (diff > 0 && !v.fechado) h += card(lbl('Registrar perda de café pronto') + linha(sb('\u2212', 'fe-perda', '-50', 'Diminuir 50 ml'), '<div class="big">' + esc(fmtQ(S.perda.ml, 'ml')) + '</div>' + sb('+', 'fe-perda', '50', 'Aumentar 50 ml', true)) +
+      ghost('Usar toda a diferença', 'fe-tudo') + lbl('Motivo') + '<div class="chips">' + v.motivos.map(function (m) { return chip(m.nome, S.perda.motivo === m.id, 'fe-motivo', m.id); }).join('') + '</div>' +
+      btn('Registrar perda', 'fe-perda-ok', null, { dis: S.perda.ml > diff + 0.001 || S.ocupado }));
+    h += card(lbl('Perdas e ajustes de hoje') + '<div class="rows">' + v.ajustes.map(function (a) { return '<div class="it"><div><div class="nm">' + esc(a.texto) + '</div>' + muted(a.meta) + '</div>' + ghost('Desfazer', 'estornar', 'ajuste_cafe|' + a.id) + '</div>'; }).join('') + '</div>' + (v.ajustes.length ? '' : muted('Nenhuma perda ou ajuste hoje.')));
+    var f = (v.fechado ? '<div class="msg" style="display:flex"><span>Dia fechado</span>' + btn('Reabrir', 'fe-reabrir', null, { cls: 'ghost' }) + '</div>' : '') + btn('Fechar o dia', 'fe-fechar', null, { dis: diff !== 0 || v.fechado || S.ocupado });
+    return corpo(h, f);
+  }
+
+  /* ============================ ESTOQUE ============================ */
+  function telaEstoque() {
+    var v = V(); if (!v) return carregando();
+    var sub = S.sub.estoque, h = '';
+    if (sub === 'saldos') {
+      h += '<div class="sec">' + ghost('Registrar compra', 'ir', 'compra') + v.linhas.map(function (l) {
+        var baixo = l.total < l.min, c = S.est.contar && S.est.contar.mat === l.id ? S.est.contar : null, painel = '';
+        if (c) {
+          var atual = l.por[c.uid] || 0, val = num(c.txt), ok = !isNaN(val) && val >= 0, diff = ok ? Math.round((val - atual) * 1000) / 1000 : 0;
+          painel = '<div class="numbox">' + lbl('Contagem de ' + l.nome) + '<div class="chips">' + v.usuarios.map(function (u) { return chip(u.nome, c.uid === u.id, 'es-contar-uid', u.id); }).join('') + '</div>' +
+            rotulo('es-contado', 'Quanto tem agora? (' + l.un + ')') + entrada('es-contado', c.txt, { modo: 'decimal', ph: 'Ex.: 850' }) +
+            muted(!ok ? 'Digite a quantidade que você contou.' : diff === 0 ? 'Já está igual: nada a ajustar.' : nomeDe(v.usuarios, c.uid) + ': ' + fmtN(atual) + ' \u2192 ' + fmtN(val) + ' ' + l.un + ' (' + (diff > 0 ? '+' : '\u2212') + fmtN(Math.abs(diff)) + ' ' + l.un + ')') +
+            '<div class="row2">' + btn('Registrar contagem', 'es-contar-ok', null, { dis: !ok || diff === 0 || S.ocupado }) + ghost('Cancelar', 'es-contar-nao') + '</div></div>';
+        }
+        return card(linha('<div><div class="nm">' + esc(l.nome) + '</div></div>', '<span class="tag ' + (baixo ? 'err' : 'okk') + '">' + (baixo ? 'ABAIXO DO MÍNIMO' : 'OK') + '</span>') +
+          '<div class="trio">' + v.usuarios.map(function (u) { return '<div>' + muted(u.nome) + '<div class="nm">' + esc(fmtQ(l.por[u.id] || 0, l.un)) + '</div></div>'; }).join('') + '<div>' + muted('Total') + '<div class="nm">' + esc(fmtQ(l.total, l.un)) + '</div></div></div>' +
+          '<div class="bar"><i style="width:' + Math.max(2, Math.min(100, l.min > 0 ? Math.round(l.total / (l.min * 2) * 100) : 100)) + '%"></i></div>' +
+          linha(lbl('Estoque mínimo'), step(fmtQ(l.min, l.un), 'es-min', l.id + '|-1', l.id + '|1', 'Diminuir mínimo de ' + l.nome, 'Aumentar mínimo de ' + l.nome, 92)) +
+          (painel || '<div class="row2">' + btn('Contei o estoque', 'es-contar', l.id) + ghost('Transferir ou dar baixa', 'es-mexer', l.id) + '</div>'));
+      }).join('') + '</div>';
+    } else if (sub === 'movs') {
+      h += card(lbl('Movimentações do estoque (mais recentes primeiro)') + '<div class="rows">' + v.movs.map(function (m) {
+        return '<div class="it"><div><div class="nm">' + esc(m.texto) + '</div>' + muted(m.tipo + ' \u00B7 ' + m.meta) + '</div><div class="right"><div class="mid' + (m.qtd < 0 ? ' neg' : '') + '">' + esc(nb((m.qtd > 0 ? '+' : '\u2212') + fmtN(Math.abs(m.qtd)) + ' ' + m.un)) + '</div>' + (m.desfazer ? ghost('Desfazer', 'estornar', m.tabela + '|' + m.origem) : '') + '</div></div>';
+      }).join('') + '</div>' + (v.movs.length ? '' : muted('Sem movimentações.')));
+    } else {
+      var mv = S.mov, m = v.materiais.filter(function (x) { return x.id === mv.mat; })[0] || v.materiais[0], atual = ((v.saldos[mv.de] || {})[m.id]) || 0, outro = v.usuarios.filter(function (u) { return u.id !== mv.de; })[0];
+      var depois = mv.tipo === 'AJUSTE' ? atual + mv.qtd : atual - mv.qtd, extra = '';
+      if (mv.tipo === 'TRANSFERENCIA' && outro) extra = ' \u00B7 ' + outro.nome + ': ' + fmtN(((v.saldos[outro.id] || {})[m.id]) || 0) + ' \u2192 ' + fmtN((((v.saldos[outro.id] || {})[m.id]) || 0) + mv.qtd);
+      var bloq = (mv.tipo === 'AJUSTE' ? mv.qtd === 0 : mv.qtd <= 0) || depois < -1e-9;
+      h += '<div class="sec">' + card(lbl('O que fazer') + '<div class="chips">' + [['AJUSTE', 'Ajuste'], ['PERDA', 'Perda de material'], ['TRANSFERENCIA', 'Transferir']].map(function (x) { return chip(x[1], mv.tipo === x[0], 'es-tipo', x[0]); }).join('') + '</div>' +
+        muted(mv.tipo === 'AJUSTE' ? 'Soma ou tira da contagem (use \u2212 para tirar). Para dizer quanto tem agora, use "Contei o estoque" em Saldos.' : mv.tipo === 'PERDA' ? 'Material que estragou ou caiu. Sai do estoque e fica registrado.' : 'Passa material do estoque de um para o do outro.') +
+        lbl('Material') + '<div class="chips">' + v.materiais.map(function (x) { return chip(x.nome, x.id === m.id, 'es-mat', x.id); }).join('') + '</div>' +
+        lbl('Estoque de quem') + '<div class="chips">' + v.usuarios.map(function (u) { return chip(u.nome, mv.de === u.id, 'es-de', u.id); }).join('') + '</div>' +
+        linha(lbl('Quantidade (' + m.un + ')'), stepIn('es-qtd-in', mv.txt, 'Quantidade', 'es-qtd', '-1', '1', 'Diminuir quantidade', 'Aumentar quantidade', 88))) +
+        card(lbl('Como o estoque fica') + '<div class="nm">' + esc(nb(nomeDe(v.usuarios, mv.de) + ': ' + fmtN(atual) + ' \u2192 ' + fmtN(depois) + ' ' + m.un + extra)) + '</div>', 'warn') +
+        btn('Registrar movimento', 'es-ok', null, { dis: bloq || S.ocupado }) + '</div>';
+    }
+    return corpo(h);
+  }
+
+  /* ============================ PAINÉIS ============================ */
+  function telaPaineis() {
+    var v = V(); if (!v) return carregando();
+    var nota = v.ignoraPeriodo ? 'Este painel mostra a situação de agora e não muda com o período.' : S.periodo === 'hoje' ? 'Só o que aconteceu hoje.' : S.periodo === '7d' ? 'Últimos 7 dias, contando hoje.' : 'Tudo desde o começo.';
+    return corpo('<div class="chips" role="group" aria-label="Período">' + [['hoje', 'Hoje'], ['7d', '7 dias'], ['tudo', 'Tudo']].map(function (x) { return chip(x[1], S.periodo === x[0], 'periodo', x[0]); }).join('') + '</div>' + muted(nota) +
+      tiles(v.tiles) + card(lbl(v.t1) + barras(v.b1) + (v.b1.length ? '' : muted('Sem dados neste período.'))) + card(lbl(v.t2) + barras(v.b2) + (v.b2.length ? '' : muted('Sem dados neste período.'))));
+  }
+
+  /* ============================ MAIS ============================ */
+  function telaMais() {
+    var itens = [['compra', 'Compras', 'Registrar compra e ver o histórico de preços'], ['fechamento', 'Fechamento do dia', 'Produzido, vendido, perdas e ajustes'], ['cadastros', 'Cadastros', 'Materiais, produtos e preços, receitas, promoções'], ['financeiro', 'Financeiro', 'Resultado, payback, aportes, reembolsos e despesas'], ['historico', 'Histórico e desfazer', 'Tudo que foi registrado, com estorno'], ['sistema', 'Sistema', 'Tabelas, auditoria e preparo para o MySQL']];
+    return corpo('<div class="list">' + itens.map(function (x) { return '<button type="button" class="mrow" data-a="ir" data-v="' + x[0] + '"><div><div class="pn">' + x[1] + '</div>' + muted(x[2]) + '</div><span class="chev">\u203A</span></button>'; }).join('') + '</div>');
+  }
+
+  /* ============================ CADASTROS ============================ */
+  function telaCadastros() {
+    var v = V(); if (!v) return carregando();
+    var sub = S.sub.cadastros, h = '';
+    if (sub === 'materiais') {
+      h += '<div class="sec">' + card(muted('Só o café (500 g por R$ 27,00) vem do seu documento. Os outros valores são de exemplo: ajuste aqui depois do primeiro teste. Nada é apagado: para tirar um material de uso, marque como Inativo.'), 'warn') +
+        card(lbl('Novo material') + rotulo('nm-nome', 'Nome') + entrada('nm-nome', S.nm.nome) + lbl('Unidade de controle') + '<div class="chips">' + ['g', 'ml', 'un'].map(function (u) { return chip(u, S.nm.un === u, 'nm-un', u); }).join('') + '</div>' + btn('Adicionar material', 'nm-ok', null, { dis: S.ocupado })) +
+        v.materiais.map(function (m) {
+          return card(linha('<div><div class="nm">' + esc(m.nome) + '</div>' + muted('Unidade de controle: ' + m.un) + '</div>', chip(m.ativo ? 'Ativo' : 'Inativo', m.ativo, 'mat-ativo', m.id + '|' + (m.ativo ? 0 : 1))) +
+            linha(lbl('Estoque mínimo'), step(fmtN(m.min) + ' ' + m.un, 'mat-min', m.id + '|-1', m.id + '|1', 'Diminuir mínimo', 'Aumentar mínimo')) +
+            linha(lbl('Tamanho do pacote'), step(fmtN(m.pacote) + ' ' + m.un, 'mat-pac', m.id + '|-1', m.id + '|1', 'Diminuir pacote', 'Aumentar pacote')) +
+            linha(lbl('Preço do pacote'), step(fmtR(m.preco), 'mat-preco', m.id + '|-50', m.id + '|50', 'Diminuir preço', 'Aumentar preço')) +
+            muted('Custo padrão: R$ ' + (m.custoPadrao / 100).toFixed(3).replace('.', ',') + ' por ' + m.un));
+        }).join('') + '</div>';
+    } else if (sub === 'produtos') {
+      h += '<div class="sec">' + v.produtos.map(function (p) {
+        return card(linha('<div><div class="nm">' + esc(p.nome) + '</div>' + muted(p.tamanho + ' ml') + '</div>', chip(p.ativo ? 'À venda' : 'Fora de venda', p.ativo, 'var-ativo', p.id + '|' + (p.ativo ? 0 : 1))) +
+          linha(lbl('Preço de venda'), step(fmtR(p.preco), 'preco', p.id + '|-10', p.id + '|10', 'Baixar preço', 'Subir preço')));
+      }).join('') + card(lbl('Histórico de mudanças de preço') + '<div class="rows">' + v.historico.map(function (t) { return '<div class="it"><div class="muted">' + esc(t) + '</div></div>'; }).join('') + '</div>' + (v.historico.length ? '' : muted('Nenhuma mudança ainda. Ao mudar um preço, o anterior fica guardado aqui. Vendas já feitas guardam o preço da hora.'))) + '</div>';
+    } else if (sub === 'receitas') {
+      var esc0 = S.rec === 'casa' || S.rec === null ? '' : S.rec, e = v.escopos.filter(function (x) { return x.id === esc0; })[0] || v.escopos[0], r = e.receita;
+      var campos = [['Colheres de café por litro', 'colheres_por_litro', r.colheres, 1, 0.5, ''], ['Gramas por colher', 'g_por_colher', r.gPorColher, 0.5, 0.5, ' g'], ['Filtros de papel por litro', 'filtros_por_litro', r.filtros, 0.5, 0, ''], ['Açúcar por litro', 'acucar_g_por_litro', r.acucar, 5, 0, ' g'], ['Água por litro', 'agua_ml_por_litro', r.agua, 50, 100, ' ml']];
+      h += '<div class="sec">' + card(lbl('Receita de quem?') + '<div class="chips">' + v.escopos.map(function (x) { return chip(x.nome, x.id === e.id, 'rec-escopo', x.id || 'casa'); }).join('') + '</div>' +
+        muted(!e.id ? 'A receita da casa vale para quem não tem receita própria.' : e.propria ? e.nome + ' tem receita própria. Os preparos dele(a) usam estes valores.' : 'Hoje ' + e.nome + ' usa a receita da casa. Mudar qualquer valor abaixo cria a receita própria dele(a); a da casa não muda.') +
+        '<div class="rows">' + campos.map(function (x) {
+          return '<div class="it">' + lbl(x[0]) + step(fmtN(x[2]) + x[5], 'rec', x[1] + '|' + Math.max(x[4], r3(x[2] - x[3])), x[1] + '|' + r3(x[2] + x[3]), 'Diminuir ' + x[0], 'Aumentar ' + x[0], 84) + '</div>';
+        }).join('') + '</div>' + muted('1 L de café leva ' + fmtN(r.colheres * r.gPorColher) + ' g de pó' + (r.filtros ? '' : ' (sem filtro de papel)') + (r.acucar ? ' e ' + fmtN(r.acucar) + ' g de açúcar' : '') + '. A gramatura por colher é valor de exemplo: meça no primeiro preparo.') +
+        (e.id && e.propria ? ghost('Voltar à receita padrão da casa', 'rec-padrao') : '')) +
+        v.composicao.map(function (c) {
+          return card(linha('<div class="nm">' + esc(nb(c.nome + ' ' + c.tamanho + ' ml')) + '</div>', muted('café no copo: ' + c.cafeMl + ' ml')) +
+            linha(lbl('Leite no copo'), step(fmtN(c.leiteMl) + ' ml', 'comp', c.id + '|leite_ml|' + (c.leiteMl - 5), c.id + '|leite_ml|' + (c.leiteMl + 5), 'Menos leite', 'Mais leite')) +
+            linha(lbl('Canela no copo'), step(fmtN(c.canelaG) + ' g', 'comp', c.id + '|canela_g|' + (c.canelaG - 0.5), c.id + '|canela_g|' + (c.canelaG + 0.5), 'Menos canela', 'Mais canela')));
+        }).join('') + '</div>';
+    } else if (sub === 'listas') {
+      h += '<div class="sec">' + card(muted('Aqui você cria, renomeia e desativa os locais de compra, as formas de pagamento e os motivos de perda. Nada é apagado: o que for desativado só deixa de aparecer nas telas.')) + v.listas.map(function (L) {
+        return card(lbl(L.titulo) + '<div class="rows">' + L.itens.map(function (i) {
+          var ed = S.lista.edit && S.lista.edit.id === i.id;
+          return ed ? '<div class="it"><div style="width:100%">' + entrada('lst-edit', S.lista.edit.nome) + '<div class="row2">' + btn('Salvar nome', 'lst-edit-ok') + ghost('Cancelar', 'lst-edit-nao') + '</div></div></div>' :
+            '<div class="it"><div class="nm">' + esc(i.nome) + '</div><div class="right">' + ghost('Renomear', 'lst-edit', L.tabela + '|' + i.id) + chip(i.ativo ? 'Ativo' : 'Inativo', i.ativo, 'lst-ativo', L.tabela + '|' + i.id + '|' + (i.ativo ? 0 : 1)) + '</div></div>';
+        }).join('') + '</div>' + rotulo('lst-novo-' + L.tabela, 'Novo item') + '<div class="addlinha">' + entrada('lst-novo-' + L.tabela, S.lista.novo[L.tabela] || '', { ph: 'Nome' }) + btn('Adicionar', 'lst-add', L.tabela, { dis: S.ocupado }) + '</div>');
+      }).join('') + '</div>';
+    } else {
+      h += '<div class="sec">' + v.promocoes.map(function (p) {
+        return card(linha('<div><div class="nm">' + esc(p.nome) + '</div>' + muted('Exemplo de promoção (experimento antes / durante / depois)') + '</div>', chip(p.ativo ? 'Ativa' : 'Inativa', p.ativo, 'promo-ativo', p.id + '|' + (p.ativo ? 0 : 1))) +
+          linha(lbl('Desconto'), step(p.desconto + '%', 'promo-desc', p.id + '|' + (p.desconto - 5), p.id + '|' + (p.desconto + 5), 'Menos desconto', 'Mais desconto')));
+      }).join('') + card(muted('Nesta fase a promoção só fica cadastrada. Ligar promoções às vendas para comparar antes, durante e depois entra quando o café estiver redondo.')) + '</div>';
+    }
+    return corpo(h);
+  }
+
+  /* ============================ FINANCEIRO ============================ */
+  function telaFinanceiro() {
+    var v = V(); if (!v) return carregando();
+    var h = '';
+    if (S.sub.financeiro === 'resultado') {
+      h += '<div class="sec">' + tiles(v.tiles) + card(lbl('Payback: quanto do investido já voltou') + '<div class="list">' + v.payback.map(function (r) {
+        return '<div>' + linha('<span class="nm">' + esc(r.nome) + '</span>', '<span class="nm">' + esc(r.pctTxt) + '</span>') + muted('Investido ' + r.inv + ' \u00B7 reembolsado ' + r.re + ' \u00B7 falta ' + r.falta) + '<div class="bar"><i style="width:' + r.pct + '%"></i></div></div>';
+      }).join('') + '</div>' + muted('Investido = compras de cada um + aportes. Reembolso é lançado na aba Lançamentos.')) +
+        card(lbl('Faturamento dos cafés atribuído a quem preparou') + '<div class="rows">' + v.atribuicao.map(function (a) { return '<div class="it"><div><div class="nm">' + esc(a.nome) + '</div>' + muted(a.det) + '</div><div class="mid">' + esc(a.val) + '</div></div>'; }).join('') + '</div>') + '</div>';
+    } else {
+      var l = S.lanc;
+      h += '<div class="sec">' + card(lbl('Novo lançamento') + '<div class="chips">' + [['REEMBOLSO', 'Reembolso'], ['APORTE', 'Aporte'], ['DESPESA', 'Despesa']].map(function (x) { return chip(x[1], l.tipo === x[0], 'lanc-tipo', x[0]); }).join('') + '</div>' +
+        lbl('De quem') + '<div class="chips">' + v.usuarios.map(function (u) { return chip(u.nome, l.uid === u.id, 'lanc-uid', u.id); }).join('') + '</div>' +
+        linha(lbl('Valor'), step(fmtR(l.valor), 'lanc-val', '-100', '100', 'Diminuir valor', 'Aumentar valor')) + btn('Registrar lançamento', 'lanc-ok', null, { dis: S.ocupado })) +
+        card(lbl('Lançamentos') + '<div class="rows">' + v.lista.map(function (x) { return '<div class="it"><div><div class="nm">' + esc(x.texto) + '</div>' + muted(x.meta) + '</div>' + ghost('Desfazer', 'estornar', 'lancamento_financeiro|' + x.id) + '</div>'; }).join('') + '</div>' + (v.lista.length ? '' : muted('Nenhum lançamento ainda.'))) + '</div>';
+    }
+    return corpo(h);
+  }
+
+  /* ============================ CLIENTES E SORTEIO ============================ */
+  function telaClientes() {
+    var sub = S.sub.clientes, h = '';
+    if (sub === 'form') {
+      var f = S.cli.form || { nome: '', tel: '', email: '', id: '', volta: '' };
+      return corpo('<div class="sec">' + card(linha(lbl(f.id ? 'Editar cliente' : 'Novo cliente'), ghost(f.volta === 'venda' ? 'Voltar à venda' : 'Voltar à lista', 'cli-voltar')) +
+        rotulo('cli-nome', 'Nome') + entrada('cli-nome', f.nome) + rotulo('cli-tel', 'Telefone com DDD') + entrada('cli-tel', f.tel, { tipo: 'tel' }) + rotulo('cli-email', 'E-mail (Gmail)') + entrada('cli-email', f.email, { tipo: 'email' }) +
+        muted('Guardamos só nome, telefone e e-mail, para o cliente não precisar se cadastrar de novo. Vale pedir o OK dele para guardar os dados.') + btn(f.id ? 'Salvar alterações' : f.volta === 'venda' ? 'Cadastrar e voltar à venda' : 'Cadastrar cliente', 'cli-salvar', null, { dis: S.ocupado })) + '</div>');
+    }
+    var v = V(); if (!v) return carregando();
+    if (sub === 'lista') {
+      h += '<div class="sec">' + card(rotulo('cli-q', 'Filtrar clientes') + entrada('cli-q', S.cli.q, { ph: 'Nome, telefone, e-mail ou número' }) + muted(v.total + (v.total === 1 ? ' cliente cadastrado' : ' clientes cadastrados') + ' \u00B7 ' + v.comNumeros + ' com números ativos') + btn('Novo cliente', 'cli-novo')) +
+        '<div id="cli-res" class="dc">' + htmlResClientes(v) + '</div></div>';
+    } else {
+      h += telaSorteio(v);
+    }
+    return corpo(h);
+  }
+  function htmlResClientes(v) {
+    return v.clientes.map(function (c) {
+          return card(linha('<div><div class="nm">' + esc(c.nome) + '</div>' + muted(c.codigo + ' \u00B7 ' + c.telefone) + muted(c.email) + '</div>', chip(c.ativo ? 'Ativo' : 'Inativo', c.ativo, 'cli-ativo', c.id + '|' + (c.ativo ? 0 : 1))) +
+            (c.numeros.length ? '<div class="numbox">' + lbl(c.numeros.length + (c.numeros.length === 1 ? ' número ativo' : ' números ativos')) + '<div class="mono">' + esc(linhasNum(c.numeros)) + '</div></div>' : muted('Nenhum número ativo')) +
+            '<div class="row2">' + btn('Vender números', 'cli-vender', c.id, { dis: !c.ativo }) + ghost('Editar dados', 'cli-editar', c.id) + '</div>');
+    }).join('') + (v.encontrados > v.mostrando ? muted('Mostrando ' + v.mostrando + ' de ' + v.encontrados + ': use o filtro para achar os outros.') : '') +
+      (v.clientes.length ? '' : card(muted(v.total === 0 ? 'Nenhum cliente cadastrado ainda. Toque em "Novo cliente".' : 'Nenhum cliente encontrado para esse filtro.')));
+  }
+  function htmlResNq(v) {
+    return '<div class="rows">' + v.conferir.map(function (x) { return '<div class="it"><div><div class="nm">' + esc(nb(x.titulo)) + '</div>' + muted(x.dono) + '</div><span class="tag ' + (x.ativo ? 'okk' : '') + '">' + (x.ativo ? 'ATIVO' : 'SORTEIO ' + x.rodada) + '</span></div>'; }).join('') + '</div>' +
+      (v.conferir.length ? '' : muted(v.conferiu ? 'Nenhum número com esse valor.' : 'Digite o número ou o código sorteado para ver de quem é.'));
+  }
+  function telaSorteio(v) {
+    var prog = Math.max(2, Math.min(100, Math.round(v.nAtivos / v.meta * 100))), falta = Math.max(0, v.meta - v.nAtivos);
+    return '<div class="sec">' + card(lbl('Sorteio atual: nº ' + v.rodadaAtual) + '<div class="row"><div class="mid">' + esc(nb(v.nAtivos + ' de ' + v.meta + ' números vendidos')) + '</div></div><div class="bar"><i style="width:' + prog + '%"></i></div>' +
+      '<div class="nm">' + esc(v.liberado ? 'Meta atingida: faça o sorteio e depois toque em Novo sorteio.' : 'Faltam ' + falta + (falta === 1 ? ' número' : ' números') + ' para o sorteio.') + '</div>' + muted(v.nAtivos + (v.nAtivos === 1 ? ' número' : ' números') + ' de ' + v.nClientes + (v.nClientes === 1 ? ' cliente' : ' clientes') + ' neste sorteio'), v.liberado ? 'ok' : '') +
+      card(rotulo('nq-busca', 'Conferir número sorteado') + entrada('nq-busca', S.cli.nq, { ph: 'Número ou código (ex.: 0472)', modo: 'numeric' }) + '<div id="nq-res" class="dc">' + htmlResNq(v) + '</div>') +
+      card(lbl('Regras do sorteio') + linha(lbl('Sorteio a cada'), step(v.meta + ' números', 'cfg', 'sorteio.meta_numeros|' + (v.meta - 10), 'sorteio.meta_numeros|' + (v.meta + 10), 'Menos números por sorteio', 'Mais números por sorteio')) +
+        linha(lbl('Preço de cada número'), step(fmtR(v.preco), 'cfg', 'sorteio.preco_numero_centavos|' + (v.preco - 50), 'sorteio.preco_numero_centavos|' + (v.preco + 50), 'Baixar preço do número', 'Subir preço do número')) + muted('O sorteio é liberado quando os números vendidos chegam à meta. O preço (valor de exemplo) vale para as próximas vendas; números já vendidos guardam o valor da hora.')) +
+      card(lbl('Depois de sortear') + muted('O sorteio é feito fora do sistema. Depois, toque em Novo sorteio: este sorteio é encerrado (os números ficam guardados nele) e começa outro do zero. Os cadastros dos clientes ficam.') +
+        btn('Novo sorteio', 'ns-pedir', null, { dis: v.nAtivos === 0 }) +
+        (S.novoSorteio && v.nAtivos ? card('<div class="nm">' + esc(nb('Encerrar o sorteio nº ' + v.rodadaAtual + ' e começar o nº ' + (v.rodadaAtual + 1) + '? Os ' + v.nAtivos + (v.nAtivos === 1 ? ' número' : ' números') + ' de ' + v.nClientes + (v.nClientes === 1 ? ' cliente ficam guardados' : ' clientes ficam guardados') + ' no sorteio nº ' + v.rodadaAtual + '. No novo só entram números novos.' + (v.liberado ? '' : ' Ainda faltam ' + falta + ' números para a meta de ' + v.meta + '.'))) + '</div>' + linha(ghost('Cancelar', 'ns-nao'), ghost('Confirmar', 'ns-sim')), 'warn') : '')) +
+      card(lbl('Sorteios encerrados') + '<div class="rows">' + v.historico.map(function (x) { return '<div class="it"><div><div class="nm">' + esc(x.texto) + '</div>' + muted(x.meta) + '</div>' + (x.podeDesfazer ? ghost('Reabrir', 'estornar', 'sorteio|' + x.id) : '') + '</div>'; }).join('') + '</div>' + (v.historico.length ? muted('Só o último sorteio encerrado pode ser reaberto, e só se o sorteio atual ainda não vendeu números.') : muted('Nenhum sorteio encerrado ainda.'))) + '</div>';
+  }
+
+  /* ============================ HISTÓRICO e SISTEMA ============================ */
+  function telaHistorico() {
+    var v = V(); if (!v) return carregando();
+    return corpo(muted('Nada é apagado: desfazer cria um estorno e o registro continua visível.', 'wide') + '<div class="list wide cap">' + v.linhas.map(function (l) {
+      return card('<div class="row"><span class="tag">' + esc(l.tipo) + '</span><span class="tag ' + (l.status === 'ATIVO' ? 'okk' : l.status === 'ENCERRADO' ? '' : 'err') + '">' + esc(l.status) + '</span></div><div class="nm' + (l.status === 'ESTORNADO' ? ' struck' : '') + '">' + esc(l.resumo) + '</div>' + muted('#' + l.numero + ' \u00B7 ' + l.meta) +
+        (l.status === 'ESTORNADO' ? '<div class="muted neg">Estornado por ' + esc(l.estornadoPor) + ' em ' + esc(l.estornadoEm) + '</div>' : l.status === 'ATIVO' ? ghost('Desfazer', 'estornar', l.tabela + '|' + l.id) : ''));
+    }).join('') + '</div>' + (v.linhas.length ? '' : muted('Nenhum registro ainda.')));
+  }
+  function telaSistema() {
+    var v = V(); if (!v) return carregando();
+    var a = S.auditoria;
+    return corpo(card(lbl('Esquema de dados') + '<div class="nm">Versão ' + v.versao + ' \u00B7 ' + v.tabelas.length + ' tabelas</div>' + muted('Cada aba da planilha é uma tabela, já no formato do MySQL. Para gerar o esquema do MySQL e exportar CSV, use o menu CoffeCommit na planilha.')) +
+      card(lbl('Auditoria de integridade') + muted('Confere chaves, tipos, totais, livros, estoque e gravações incompletas.') + btn('Rodar auditoria', 'auditar', null, { dis: S.ocupado }) +
+        (a ? '<div class="nm ' + (a.limpo ? '' : 'neg') + '">' + esc(a.limpo ? 'Tudo certo: nenhum erro encontrado.' : a.erros + ' erro(s) e ' + a.alertas + ' alerta(s).') + '</div>' + (a.achados.length ? '<div class="rows">' + a.achados.slice(0, 20).map(function (x) { return '<div class="it"><div class="muted">' + esc('[' + x.nivel + '] ' + x.tabela + ' ' + x.id + ': ' + x.msg) + '</div></div>'; }).join('') + '</div>' : '') : '')) +
+      card(lbl('Linhas por tabela') + '<div class="rows">' + v.tabelas.map(function (t) { return '<div class="it"><div class="nm">' + esc(t.nome) + '</div><div class="muted">' + esc(t.grupo + ' \u00B7 ' + t.linhas) + '</div></div>'; }).join('') + '</div>'));
+  }
+
+  /* ============================ casca do app ============================ */
+  function topo() {
+    var voltar = SUBTELAS.indexOf(S.tela) >= 0;
+    return '<div class="top"><div class="tl">' + (voltar ? '<button type="button" class="back" aria-label="Voltar para Mais" data-a="ir" data-v="mais">\u2039</button>' : '') +
+      '<div><div class="brand" style="color:#A8481A">COFFECOMMIT</div><h1 class="h1">' + esc(TITULOS[S.tela]) + '</h1></div></div>' +
+      '<div class="usr" role="group" aria-label="Quem está usando"><span class="u on" style="display:flex;align-items:center">' + esc(S.user.nome) + '</span><button type="button" class="u" aria-label="Trocar de pessoa" data-a="sair">Trocar</button></div></div>';
+  }
+  function subbar() {
+    var l = SUBS[S.tela]; if (!l) return '';
+    return '<div class="subbar" style="display:flex">' + l.map(function (x) { return chip(x[1], S.sub[S.tela] === x[0], 'sub', x[0]); }).join('') + '</div>';
+  }
+  var ICONES = {
+    venda: '<path d="M5 8h11v6a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5V8z"></path><path d="M16 9h2a2 2 0 0 1 0 4h-2"></path><path d="M8 3v2M11 3v2"></path>',
+    clientes: '<circle cx="12" cy="8" r="4"></circle><path d="M4 21a8 8 0 0 1 16 0"></path>',
+    preparo: '<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"></path>',
+    estoque: '<path d="M3 7l9-4 9 4-9 4-9-4z"></path><path d="M3 7v10l9 4 9-4V7"></path><path d="M12 11v10"></path>',
+    paineis: '<path d="M5 20V10M12 20V4M19 20v-7"></path>',
+    mais: '<circle cx="5" cy="12" r="1.5"></circle><circle cx="12" cy="12" r="1.5"></circle><circle cx="19" cy="12" r="1.5"></circle>'
+  };
+  function nav() {
+    var ativo = SUBTELAS.indexOf(S.tela) >= 0 ? 'mais' : S.tela;
+    return '<nav class="nav" aria-label="Telas">' + [['venda', 'Venda'], ['clientes', 'Clientes'], ['preparo', 'Preparo'], ['estoque', 'Estoque'], ['paineis', 'Painéis'], ['mais', 'Mais']].map(function (x) {
+      return '<button type="button" class="nb' + (ativo === x[0] ? ' on' : '') + '" aria-label="' + x[1] + '" data-a="ir" data-v="' + x[0] + '"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONES[x[0]] + '</svg>' + x[1] + '</button>';
+    }).join('') + '</nav>';
+  }
+  function corpoDaTela() {
+    switch (S.tela) {
+      case 'venda': return telaVenda(); case 'preparo': return telaPreparo(); case 'compra': return telaCompra(); case 'fechamento': return telaFechamento();
+      case 'estoque': return telaEstoque(); case 'paineis': return telaPaineis(); case 'mais': return telaMais(); case 'cadastros': return telaCadastros();
+      case 'financeiro': return telaFinanceiro(); case 'clientes': return telaClientes(); case 'historico': return telaHistorico(); case 'sistema': return telaSistema();
+    }
+    return '';
+  }
+  function telaEscolha() {
+    return '<div class="login"><div class="card"><div class="brand" style="color:#A8481A">COFFECOMMIT</div><h1 class="h1">Quem é você?</h1>' +
+      muted('Escolha uma vez: este aparelho vai lembrar. Para trocar de pessoa, use "Trocar" no topo do app.') +
+      '<div class="list">' + S.usuarios.map(function (u) { return '<button type="button" class="btn" data-a="escolher" data-v="' + esc(u.id) + '">' + esc(u.nome) + '</button>'; }).join('') + '</div>' +
+      (S.usuarios.length ? '' : ghost('Tentar de novo', 'repetir')) +
+      (S.msg ? '<div class="erro">' + esc(S.msg.txt) + '</div>' : '') + '</div></div>';
+  }
+
+  function render() {
+    var ativo = document.activeElement, foco = null;
+    if (ativo && ativo.id && ativo.tagName === 'INPUT') foco = { id: ativo.id, a: ativo.selectionStart, b: ativo.selectionEnd };
+    var corpoAtual = raiz.querySelector('.body'), rolagem = corpoAtual ? corpoAtual.scrollTop : 0, mesmaTela = raiz.getAttribute('data-tela') === S.tela + S.sub[S.tela];
+    var html;
+    if (!S.uid) html = telaEscolha();
+    else if (!S.user) html = '<div class="login"><div class="card">' + muted('Abrindo\u2026') + '</div></div>';
+    else html = (S.ocupado ? '<div class="carga"></div>' : '') + '<div class="app"><div class="shell">' + topo() + subbar() + '<div class="scr">' + corpoDaTela() + '</div>' +
+      (S.msg ? '<div class="msg' + (S.msg.erro ? ' erro' : '') + '" style="display:flex" role="status"><span>' + esc(nb(S.msg.txt)) + '</span><button type="button" data-a="msg-ok">OK</button></div>' : '') + nav() + '</div></div>';
+    raiz.innerHTML = fixNb(html);
+    raiz.setAttribute('data-tela', S.tela + S.sub[S.tela]);
+    var novo = raiz.querySelector('.body'); if (novo && mesmaTela) novo.scrollTop = rolagem;
+    if (foco) { var el = document.getElementById(foco.id); if (el) { el.focus(); try { el.setSelectionRange(foco.a, foco.b); } catch (e) { /* tipos sem seleção */ } } }
+  }
+
+  /* ============================ ações ============================ */
+  function par(v) { return String(v).split('|'); }
+  var temporizador = null, seqBusca = 0;
+  function buscarClienteVenda() {
+    clearTimeout(temporizador);
+    temporizador = setTimeout(function () {
+      var q = S.vs.busca, n = ++seqBusca;
+      chamar('cliente.buscar', { q: q }).then(function (r) { if (n !== seqBusca || !r.ok) return; S.vs.res = r.itens; S.vs.total = r.total; S.vs.ativa = r.ativa; if (!parcial('vs-res', htmlResVenda())) render(); }).catch(function () { });
+    }, 250);
+  }
+  function recarregarClientes() {
+    clearTimeout(temporizador);
+    temporizador = setTimeout(function () {
+      var q = consulta(), n = ++seqBusca;
+      chamar('ver', q).then(function (r) {
+        if (n !== seqBusca || !r.ok || S.tela !== 'clientes') return;
+        guardarVista(q, r);
+        var ok = q.sub === 'sorteio' ? parcial('nq-res', htmlResNq(r)) : parcial('cli-res', htmlResClientes(r));
+        if (!ok) render();
+      }).catch(function () { });
+    }, 250);
+  }
+  function irTela(t) { S.tela = t; S.msg = null; carregar(); }
+  function restaurarVenda(c) { S.tela = 'venda'; S.vs.sim = true; S.vs.cliente = c; S.vs.busca = ''; S.vs.res = []; S.vs.n = Math.max(1, S.vs.n); carregar(); }
+
+  function definirEmbalagens(n) {
+    var m = V().materiais.filter(function (x) { return x.id === S.compra.mat; })[0];
+    S.compra.n = Math.max(1, Math.min(50, n));
+    if (!S.compra.valorManual) S.compra.valorTxt = moedaTxt(m.precoPadrao * S.compra.n);
+  }
+  function resetarCompra() {
+    var v = V(); if (!v) return;
+    var m = v.materiais.filter(function (x) { return x.id === S.compra.mat; })[0] || v.materiais[0];
+    S.compra.mat = m.id; S.compra.n = 1; S.compra.valorTxt = moedaTxt(m.precoPadrao); S.compra.valorManual = false;
+  }
+  var ACOES = {
+    'ir': function (v) { irTela(v); },
+    'sub': function (v) { S.sub[S.tela] = v; S.msg = null; carregar(); },
+    'sair': function () { sair(); },
+    'msg-ok': function () { S.msg = null; render(); },
+    'ticket-ok': function () { S.ticket = null; render(); },
+    /* venda */
+    'cart': function (v) { var p = par(v), n = (S.cart[p[0]] || 0) + Number(p[1]); S.cart[p[0]] = Math.max(0, Math.min(99, n)); render(); },
+    'pay': function (v) { S.pay = v; render(); },
+    'vs-sim': function () { S.vs.sim = true; S.vs.n = Math.max(1, S.vs.n); render(); },
+    'vs-nao': function () { S.vs = { sim: false, n: 1, cliente: null, busca: '', res: [], total: 0, ativa: false }; render(); },
+    'vs-n': function (v) { S.vs.n = Math.max(1, Math.min(99, S.vs.n + Number(v))); render(); },
+    'vs-pick': function (v) { var c = S.vs.res[Number(v)]; if (c) { S.vs.cliente = c; S.vs.busca = ''; S.vs.res = []; S.vs.ativa = false; } render(); },
+    'vs-trocar': function () { S.vs.cliente = null; S.vs.busca = ''; S.vs.res = []; S.vs.ativa = false; render(); },
+    'vs-novo': function () { S.cli.form = { id: '', nome: '', tel: '', email: '', volta: 'venda' }; S.tela = 'clientes'; S.sub.clientes = 'form'; S.msg = null; render(); },
+    'venda-ok': function () {
+      var itens = {}; Object.keys(S.cart).forEach(function (k) { if (S.cart[k] > 0) itens[k] = S.cart[k]; });
+      agir('venda.registrar', { id: idDe('venda'), itens: itens, forma_pagamento_id: S.pay, sorteio: S.vs.sim ? { cliente_id: S.vs.cliente && S.vs.cliente.id, n: S.vs.n } : null },
+        { depois: function (r) { limparId('venda'); S.cart = {}; S.vs = { sim: false, n: 1, cliente: null, busca: '', res: [], total: 0, ativa: false }; S.ticket = r.ticket || null; if (r.passou) S.msg.erro = true; } });
+    },
+    /* preparo */
+    'prep-litros': function (v) { S.prep.litros = Math.max(0.5, Math.min(10, S.prep.litros + Number(v))); S.prep.aj = {}; render(); },
+    'prep-quem': function (v) { S.prep.quem = v; S.prep.aj = {}; render(); },
+    'prep-plan': function (v) { var p = par(v), n = (S.prep.plan[p[0]] || 0) + Number(p[1]); S.prep.plan[p[0]] = Math.max(0, Math.min(99, n)); S.prep.aj = {}; render(); },
+    'prep-aj': function (v) {
+      var p = par(v), vv = V(), calc = consumoPrev(vv, S.prep.litros, S.prep.plan, S.prep.quem), m = vv.materiais.filter(function (x) { return x.id === p[0]; })[0], real = realPrev(vv, p[0]);
+      var novo = Math.max(0, r3(real + Number(p[1]) * m.passo)), padrao = calc.c[p[0]] || 0;
+      if (Math.abs(novo - padrao) < 1e-9) delete S.prep.aj[p[0]]; else S.prep.aj[p[0]] = novo;
+      render();
+    },
+    'prep-add': function (v) { var m = V().materiais.filter(function (x) { return x.id === v; })[0]; S.prep.aj[v] = m.passo; render(); },
+    'prep-aj-limpar': function () { S.prep.aj = {}; render(); },
+    'prep-receita': function () { S.rec = S.prep.quem; S.tela = 'cadastros'; S.sub.cadastros = 'receitas'; S.msg = null; carregar(); },
+    'prep-ok': function () { agir('preparo.registrar', { id: idDe('preparo'), litros: S.prep.litros, plano: S.prep.plan, quem: S.prep.quem, ajustes: S.prep.aj }, { depois: function () { limparId('preparo'); S.prep.aj = {}; } }); },
+    'ir-cad': function (v) { S.tela = 'cadastros'; S.sub.cadastros = v; S.msg = null; carregar(); },
+    'periodo': function (v) { S.periodo = v; carregar(); },
+    /* compra */
+    'cp-mat': function (v) { var m = V().materiais.filter(function (x) { return x.id === v; })[0]; S.compra.mat = v; S.compra.n = 1; S.compra.valorTxt = moedaTxt(m.precoPadrao); S.compra.valorManual = false; render(); },
+    'cp-n': function (v) { definirEmbalagens(S.compra.n + Number(v)); render(); },
+    'cp-val': function (v) { var c = centsDe(S.compra.valorTxt); S.compra.valorTxt = moedaTxt(Math.max(0, (isNaN(c) ? 0 : c) + Number(v))); S.compra.valorManual = true; render(); },
+    'cp-forn': function (v) { S.compra.forn = v; render(); },
+    'cp-add-local': function () { agir('lista.salvar', { tabela: 'fornecedor', novo_id: idDe('local'), nome: S.compra.novoLocal }, { depois: function (r) { limparId('local'); S.compra.novoLocal = ''; if (r.id) S.compra.forn = r.id; } }); },
+    'cp-corrigir': function (v) {
+      var r = V().recentes.filter(function (x) { return x.id === v; })[0];
+      S.compra.mat = r.material_id; S.compra.n = r.embalagens; S.compra.forn = r.fornecedor_id; S.compra.valorTxt = moedaTxt(r.valor); S.compra.valorManual = true; S.compra.corrige = { id: r.id, numero: r.numero };
+      S.msg = null; render();
+    },
+    'cp-cancela': function () { S.compra.corrige = null; resetarCompra(); render(); },
+    'cp-ok': function () {
+      var cents = centsDe(S.compra.valorTxt);
+      agir('compra.registrar', { id: idDe('compra'), material_id: S.compra.mat, embalagens: S.compra.n, valor_centavos: cents, fornecedor_id: S.compra.forn, corrige_id: S.compra.corrige ? S.compra.corrige.id : null }, { depois: function () { limparId('compra'); S.compra.corrige = null; resetarCompra(); } });
+    },
+    /* fechamento */
+    'fe-perda': function (v) { S.perda.ml = Math.max(50, Math.min(2000, S.perda.ml + Number(v))); render(); },
+    'fe-motivo': function (v) { S.perda.motivo = v; render(); },
+    'fe-tudo': function () { var d = V().diff; if (d > 0) S.perda.ml = Math.round(d); render(); },
+    'fe-perda-ok': function () { agir('cafe.perda', { id: idDe('perda'), ml: S.perda.ml, motivo_id: S.perda.motivo }, { depois: function () { limparId('perda'); S.perda.ml = 50; } }); },
+    'fe-acerto': function () { agir('cafe.acerto', { id: idDe('acerto') }, { depois: function () { limparId('acerto'); } }); },
+    'fe-faltou': function () { var d = V().diff; S.prep.litros = Math.max(0.5, Math.ceil(-d / 500) * 0.5); S.prep.plan = {}; S.prep.aj = {}; S.tela = 'preparo'; aviso('Lance o preparo que faltou. Se souber quantos copos de cada sabor saíram, informe; o material sai do estoque de quem preparou.', false); carregar(); },
+    'fe-fechar': function () { agir('dia.fechar', {}); },
+    'fe-reabrir': function () { agir('dia.reabrir', {}); },
+    /* estoque */
+    'es-tipo': function (v) { S.mov.tipo = v; S.mov.qtd = 0; S.mov.txt = '0'; render(); },
+    'es-mat': function (v) { S.mov.mat = v; S.mov.qtd = 0; S.mov.txt = '0'; render(); },
+    'es-de': function (v) { S.mov.de = v; render(); },
+    'es-qtd': function (v) { var m = V().materiais.filter(function (x) { return x.id === S.mov.mat; })[0], q = S.mov.qtd + Number(v) * m.passo; if (S.mov.tipo === 'AJUSTE' || q >= 0) { S.mov.qtd = r3(q); S.mov.txt = txtN(S.mov.qtd); } render(); },
+    'es-ok': function () { agir('estoque.mover', { id: idDe('mov'), tipo: S.mov.tipo, material_id: S.mov.mat, de: S.mov.de, qtd: S.mov.qtd }, { depois: function () { limparId('mov'); S.mov.qtd = 0; S.mov.txt = '0'; } }); },
+    'es-min': function (v) { var p = par(v), l = V().linhas.filter(function (x) { return x.id === p[0]; })[0]; agir('material.salvar', { id: p[0], estoque_minimo_qtd: Math.max(0, r3(l.min + Number(p[1]) * l.passo)) }); },
+    'es-contar': function (v) { S.est.contar = { mat: v, uid: S.user.id, txt: '' }; render(); },
+    'es-contar-uid': function (v) { S.est.contar.uid = v; render(); },
+    'es-contar-nao': function () { S.est.contar = null; render(); },
+    'es-contar-ok': function () { var c = S.est.contar; agir('estoque.contar', { id: idDe('contar'), material_id: c.mat, usuario_id: c.uid, contado: num(c.txt) }, { depois: function () { limparId('contar'); S.est.contar = null; } }); },
+    'es-mexer': function (v) { S.mov.mat = v; S.mov.qtd = 0; S.mov.txt = '0'; S.sub.estoque = 'mexer'; S.msg = null; carregar(); },
+    /* desfazer */
+    'estornar': function (v) { var p = par(v); agir('estornar', { tabela: p[0], id: p[1] }); },
+    /* cadastros */
+    'nm-un': function (v) { S.nm.un = v; render(); },
+    'nm-ok': function () { agir('material.salvar', { novo_id: idDe('material'), nome: S.nm.nome, unidade: S.nm.un }, { depois: function () { limparId('material'); S.nm.nome = ''; } }); },
+    'mat-ativo': function (v) { var p = par(v); agir('material.salvar', { id: p[0], ativo: p[1] === '1' }); },
+    'mat-min': function (v) { var p = par(v), m = V().materiais.filter(function (x) { return x.id === p[0]; })[0]; agir('material.salvar', { id: p[0], estoque_minimo_qtd: Math.max(0, m.min + Number(p[1]) * m.passo) }); },
+    'mat-pac': function (v) { var p = par(v), m = V().materiais.filter(function (x) { return x.id === p[0]; })[0]; agir('material.salvar', { id: p[0], pacote_qtd: Math.max(m.passo, m.pacote + Number(p[1]) * m.passo) }); },
+    'mat-preco': function (v) { var p = par(v), m = V().materiais.filter(function (x) { return x.id === p[0]; })[0]; agir('material.salvar', { id: p[0], preco_padrao_centavos: Math.max(0, m.preco + Number(p[1])) }); },
+    'preco': function (v) { var p = par(v), x = V().produtos.filter(function (y) { return y.id === p[0]; })[0]; agir('preco.alterar', { variante_id: p[0], preco_centavos: Math.max(10, x.preco + Number(p[1])) }); },
+    'var-ativo': function (v) { var p = par(v); agir('variante.ativo', { id: p[0], ativo: p[1] === '1' }); },
+    'rec': function (v) { var p = par(v), o = { usuario_id: S.rec === 'casa' || !S.rec ? null : S.rec }; o[p[0]] = Number(p[1]); agir('receita.salvar', o); },
+    'rec-escopo': function (v) { S.rec = v; render(); },
+    'rec-padrao': function () { agir('receita.padrao', { usuario_id: S.rec }); },
+    'lst-add': function (v) { agir('lista.salvar', { tabela: v, novo_id: idDe('lista-' + v), nome: S.lista.novo[v] }, { depois: function () { limparId('lista-' + v); S.lista.novo[v] = ''; } }); },
+    'lst-ativo': function (v) { var p = par(v); agir('lista.salvar', { tabela: p[0], id: p[1], ativo: p[2] === '1' }); },
+    'lst-edit': function (v) { var p = par(v), L = V().listas.filter(function (x) { return x.tabela === p[0]; })[0], i = L.itens.filter(function (x) { return x.id === p[1]; })[0]; S.lista.edit = { tabela: p[0], id: p[1], nome: i.nome }; render(); },
+    'lst-edit-ok': function () { var e = S.lista.edit; agir('lista.salvar', { tabela: e.tabela, id: e.id, nome: e.nome }, { depois: function () { S.lista.edit = null; } }); },
+    'lst-edit-nao': function () { S.lista.edit = null; render(); },
+    'comp': function (v) { var p = par(v), o = { variante_id: p[0] }; o[p[1]] = Math.max(0, Number(p[2])); agir('composicao.salvar', o); },
+    'promo-ativo': function (v) { var p = par(v); agir('promocao.salvar', { id: p[0], ativo: p[1] === '1' }); },
+    'promo-desc': function (v) { var p = par(v); agir('promocao.salvar', { id: p[0], desconto_pct: Math.max(0, Math.min(50, Number(p[1]))) }); },
+    /* financeiro */
+    'lanc-tipo': function (v) { S.lanc.tipo = v; render(); },
+    'lanc-uid': function (v) { S.lanc.uid = v; render(); },
+    'lanc-val': function (v) { S.lanc.valor = Math.max(100, S.lanc.valor + Number(v)); render(); },
+    'lanc-ok': function () { agir('financeiro.lancar', { id: idDe('lanc'), tipo: S.lanc.tipo, usuario_id: S.lanc.uid, valor_centavos: S.lanc.valor }, { depois: function () { limparId('lanc'); } }); },
+    /* clientes */
+    'cli-novo': function () { S.cli.form = { id: '', nome: '', tel: '', email: '', volta: '' }; S.sub.clientes = 'form'; S.msg = null; render(); },
+    'cli-editar': function (v) { var c = V().clientes.filter(function (x) { return x.id === v; })[0]; S.cli.form = { id: c.id, nome: c.nome, tel: c.telefone, email: c.email, volta: '' }; S.sub.clientes = 'form'; S.msg = null; render(); },
+    'cli-voltar': function () { var volta = S.cli.form && S.cli.form.volta; S.cli.form = null; if (volta === 'venda') { S.tela = 'venda'; carregar(); } else { S.sub.clientes = 'lista'; carregar(); } },
+    'cli-salvar': function () {
+      var f = S.cli.form, volta = f.volta;
+      agir('cliente.salvar', { id: f.id || null, novo_id: idDe('cliente'), nome: f.nome, telefone: f.tel, email: f.email }, {
+        semVista: true,
+        depois: function (r) {
+          limparId('cliente'); S.cli.form = null; S.sub.clientes = 'lista';
+          if (volta === 'venda') { chamar('cliente.mascarado', { id: r.cliente_id }).then(function (m) { if (m.ok && m.cliente) { restaurarVenda(m.cliente); aviso(r.msg + ' Agora escolha quantos números.', false); render(); } }); }
+          else carregar();
+        }
+      });
+    },
+    'cli-ativo': function (v) { var p = par(v); agir('cliente.ativo', { id: p[0], ativo: p[1] === '1' }); },
+    'cli-vender': function (v) { var c = V().clientes.filter(function (x) { return x.id === v; })[0]; chamar('cliente.mascarado', { id: c.id }).then(function (m) { if (m.ok && m.cliente) { restaurarVenda(m.cliente); } }); },
+    'cfg': function (v) { var p = par(v); agir('config.salvar', { chave: p[0], valor: Number(p[1]) }); },
+    'ns-pedir': function () { S.novoSorteio = true; render(); },
+    'ns-nao': function () { S.novoSorteio = false; render(); },
+    'ns-sim': function () { agir('sorteio.novo', { id: idDe('sorteio') }, { depois: function () { limparId('sorteio'); S.novoSorteio = false; } }); },
+    'auditar': function () { ocupar(true); render(); chamar('sistema.auditar').then(function (r) { ocupar(false); S.auditoria = r.ok ? r : null; if (!r.ok) aviso(r.erro, true); render(); }).catch(function (e) { ocupar(false); aviso('Falha: ' + e, true); render(); }); },
+    /* quem é você neste aparelho */
+    'escolher': function (v) {
+      S.uid = v; guardar('cafe_usuario', v); S.msg = null; ocupar(true); render();
+      chamar('sessao').then(function (r) {
+        ocupar(false);
+        if (!r.ok || r.sessao === false) { S.uid = null; S.user = null; guardar('cafe_usuario', null); aviso(r.erro || 'Pessoa inválida.', true); render(); return; }
+        S.user = r.usuario; S.tela = 'venda'; S.msg = null; carregar();
+      }).catch(function (e) { ocupar(false); S.uid = null; S.user = null; aviso('Sem conexão: ' + e, true); render(); });
+    },
+    'repetir': function () { S.msg = null; boot(); }
+  };
+
+  var ENTRADAS = {
+    'vs-busca': function (v) { S.vs.busca = v; buscarClienteVenda(); },
+    'cli-q': function (v) { S.cli.q = v; recarregarClientes(); },
+    'nq-busca': function (v) { S.cli.nq = v; recarregarClientes(); },
+    'cli-nome': function (v) { S.cli.form.nome = v; }, 'cli-tel': function (v) { S.cli.form.tel = v; }, 'cli-email': function (v) { S.cli.form.email = v; },
+    'nm-nome': function (v) { S.nm.nome = v; },
+    'vs-n-in': function (v) { var d = String(v).replace(/\D/g, ''); if (d === '') return; S.vs.n = Math.max(1, Math.min(99, parseInt(d, 10))); render(); },
+    'cp-n-in': function (v) { var d = String(v).replace(/\D/g, ''); if (d === '') return; definirEmbalagens(parseInt(d, 10)); render(); },
+    'cp-val-in': function (v) { S.compra.valorTxt = v; S.compra.valorManual = true; render(); },
+    'cp-novo-local': function (v) { S.compra.novoLocal = v; var b = document.querySelector('[data-a="cp-add-local"]'); if (b) b.disabled = v.trim().length < 2; },
+    'es-contado': function (v) { S.est.contar.txt = v; render(); },
+    'es-qtd-in': function (v) { S.mov.txt = v; var n = num(v); S.mov.qtd = isNaN(n) ? 0 : n; render(); },
+    'lst-edit': function (v) { S.lista.edit.nome = v; }
+  };
+
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest ? e.target.closest('[data-a]') : null;
+    if (!el || el.disabled) return;
+    var a = el.getAttribute('data-a'), v = el.getAttribute('data-v');
+    if (S.ocupado && a !== 'msg-ok' && a !== 'sair') return;
+    if (ACOES[a]) ACOES[a](v);
+  });
+  document.addEventListener('input', function (e) {
+    var id = e.target && e.target.getAttribute && e.target.getAttribute('data-i');
+    if (id && ENTRADAS[id]) ENTRADAS[id](e.target.value);
+    else if (id && id.indexOf('lst-novo-') === 0) S.lista.novo[id.slice(9)] = e.target.value;
+  });
+
+  function boot() {
+    S.tela = 'venda';
+    var guardado = ler('cafe_usuario');
+    if (guardado) {
+      S.uid = guardado; S.user = null; render();
+      chamar('sessao').then(function (r) {
+        if (r.ok && r.usuario) { S.user = r.usuario; carregar(); }
+        else { S.uid = null; S.user = null; guardar('cafe_usuario', null); boot(); }
+      }).catch(function (e) { S.uid = null; S.user = null; S.usuarios = []; aviso('Sem conexão. Verifique a internet e tente de novo.', true); render(); });
+      return;
+    }
+    S.uid = null; S.user = null; render();
+    chamar('publico').then(function (r) { S.usuarios = r.usuarios || []; render(); }).catch(function () { S.usuarios = []; aviso('Sem conexão. Verifique a internet e tente de novo.', true); render(); });
+  }
+  window.__cafe = { S: S, ACOES: ACOES, render: render };
+  boot();
+})();
+</script>

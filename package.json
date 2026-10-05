@@ -1,0 +1,12 @@
+{
+  "name": "cafe-script",
+  "version": "1.0.0",
+  "description": "CoffeCommit MVP 1 — Google Planilhas + Apps Script (com ambiente local de teste)",
+  "private": true,
+  "scripts": {
+    "start": "node local/servidor.js",
+    "exemplos": "node local/servidor.js --limpo --exemplos",
+    "test": "node local/teste.js"
+  },
+  "engines": { "node": ">=18" }
+}
