@@ -9,20 +9,22 @@
  *   flags : *  chave primária   #  valor único   ?  pode ficar vazio   >tabela  chave estrangeira
  */
 var VERSAO_ESQUEMA = 1;
+/* sobe quando a instalação passa a fazer algo novo (ex.: formatar as linhas). O app recusa trabalhar até rodar "Instalar / atualizar". */
+var VERSAO_INSTALACAO_ = 8;
 var INICIO_VIGENCIA = '2000-01-01T00:00:00.000Z';
 
 var AUDITORIA_ = 'criado_em:dt, criado_por:id>usuario, atualizado_em:dt?, atualizado_por:id>usuario?, versao:int';
 var STATUS_ = 'enum(GRAVANDO|ATIVO|ESTORNADO)';
 
-// [nome, grupo, descrição, colunas, com auditoria]
+// [nome, grupo, descrição, colunas, com auditoria, colunas extras depois da auditoria (migração só acrescenta no fim)]
 var DEF_ESQUEMA_ = [
   ['usuario', 'cadastro', 'Pessoas que usam o sistema', 'id:id*, nome:texto#, email_google:texto?, ativo:bool', 1],
-  ['material', 'cadastro', 'Materiais e insumos. Todas as quantidades na unidade base (g, ml ou un)', 'id:id*, codigo:texto#, nome:texto#, unidade:enum(g|ml|un), estoque_minimo_qtd:qtd, pacote_qtd:qtd, preco_padrao_centavos:cent, passo_qtd:qtd, ativo:bool', 1],
+  ['material', 'cadastro', 'Materiais e insumos. Todas as quantidades na unidade base (g, ml ou un)', 'id:id*, codigo:texto#, nome:texto#, unidade:enum(g|ml|un), estoque_minimo_qtd:qtd, pacote_qtd:qtd, preco_padrao_centavos:cent, passo_qtd:qtd, ativo:bool', 1, 'controla_estoque:bool'],
   ['produto', 'cadastro', 'Produtos vendidos (conceito: café normal, com canela, com leite)', 'id:id*, nome:texto#, categoria:texto, ativo:bool', 1],
   ['produto_variante', 'cadastro', 'Produto + tamanho (o que realmente se vende)', 'id:id*, produto_id:id>produto, tamanho_ml:int, ativo:bool', 1],
   ['preco_venda', 'cadastro', 'Preço de venda por vigência (nunca se altera: cria linha nova)', 'id:id*, variante_id:id>produto_variante, preco_centavos:cent, vigente_de:dt, vigente_ate:dt?, criado_em:dt, criado_por:id>usuario', 0],
-  ['composicao_copo', 'cadastro', 'O que vai em cada copo, por vigência', 'id:id*, variante_id:id>produto_variante, leite_ml:qtd, canela_g:qtd, copo_material_id:id>material, vigente_de:dt, vigente_ate:dt?', 1],
-  ['receita_cafe', 'cadastro', 'Receita do café base (por litro), por vigência. Sem pessoa = padrão da casa; com pessoa = receita própria de quem prepara', 'id:id*, usuario_id:id>usuario?, colheres_por_litro:qtd, g_por_colher:qtd, filtros_por_litro:qtd, acucar_g_por_litro:qtd, agua_ml_por_litro:qtd, vigente_de:dt, vigente_ate:dt?', 1],
+  ['composicao_copo', 'cadastro', 'O que vai em cada copo (canela e qual copo), por vigência. leite_ml é legado e fica em 0: o café com leite já vem misturado no preparo', 'id:id*, variante_id:id>produto_variante, leite_ml:qtd, canela_g:qtd, copo_material_id:id>material, vigente_de:dt, vigente_ate:dt?', 1],
+  ['receita_cafe', 'cadastro', 'Receita do café (por litro), por vigência e por tipo (CAFE ou CAFE_LEITE: o leite entra no preparo, não no copo). Sem pessoa = padrão da casa; com pessoa = receita própria de quem prepara', 'id:id*, usuario_id:id>usuario?, colheres_por_litro:qtd, g_por_colher:qtd, filtros_por_litro:qtd, acucar_g_por_litro:qtd, agua_ml_por_litro:qtd, vigente_de:dt, vigente_ate:dt?', 1, 'base:enum(CAFE|CAFE_LEITE), leite_ml_por_litro:qtd'],
   ['fornecedor', 'cadastro', 'Onde as compras são feitas', 'id:id*, nome:texto#, ativo:bool', 1],
   ['forma_pagamento', 'cadastro', 'Formas de pagamento', 'id:id*, nome:texto#, ativo:bool', 1],
   ['motivo_perda', 'cadastro', 'Motivos de perda de café', 'id:id*, nome:texto#, ativo:bool', 1],
@@ -32,11 +34,13 @@ var DEF_ESQUEMA_ = [
 
   ['compra', 'movimento', 'Compras de material. Cada compra entra no estoque de quem comprou', 'id:id*, numero:int#, usuario_id:id>usuario, fornecedor_id:id>fornecedor, data_hora:dt, dia_local:dia, valor_total_centavos:cent, observacao:texto?, status:' + STATUS_, 1],
   ['compra_item', 'movimento', 'Itens da compra', 'id:id*, compra_id:id>compra, material_id:id>material, embalagens:int, qtd_base_qtd:qtd, valor_centavos:cent', 0],
-  ['preparo', 'movimento', 'Preparos na cafeteira. O consumo sai do estoque de quem preparou', 'id:id*, numero:int#, usuario_id:id>usuario, registrado_por:id>usuario, data_hora:dt, dia_local:dia, litros:qtd, ml_cafe:qtd, receita_id:id>receita_cafe, status:' + STATUS_, 1],
+  ['preparo', 'movimento', 'Preparos na cafeteira. O consumo sai do estoque de quem preparou', 'id:id*, numero:int#, usuario_id:id>usuario, registrado_por:id>usuario, data_hora:dt, dia_local:dia, litros:qtd, ml_cafe:qtd, receita_id:id>receita_cafe, status:' + STATUS_, 1, 'materiais_status:enum(PENDENTE|LANCADO), base:enum(CAFE|CAFE_LEITE)'],
   ['preparo_consumo', 'movimento', 'Materiais consumidos por preparo (padrão x real) com custo gravado', 'id:id*, preparo_id:id>preparo, material_id:id>material, qtd_padrao_qtd:qtd, qtd_real_qtd:qtd, custo_atual_centavos:cent, custo_padrao_centavos:cent', 0],
   ['preparo_plano', 'movimento', 'Copos que se pretende servir em cada preparo', 'id:id*, preparo_id:id>preparo, variante_id:id>produto_variante, copos:int', 0],
-  ['venda', 'movimento', 'Vendas. Não mexem no estoque de material, só no café pronto do dia', 'id:id*, numero:int#, usuario_id:id>usuario, data_hora:dt, dia_local:dia, forma_pagamento_id:id>forma_pagamento, cliente_id:id>cliente?, copos:int, ml_cafe:qtd, total_cafe_centavos:cent, total_sorteio_centavos:cent, status:' + STATUS_, 1],
-  ['venda_item', 'movimento', 'Itens da venda, com preço e café gravados no momento', 'id:id*, venda_id:id>venda, variante_id:id>produto_variante, qtd:int, preco_unit_centavos:cent, ml_cafe_unit:qtd', 0],
+  ['venda', 'movimento', 'Vendas. total_cafe_centavos é o valor cobrado do café (já com o desconto manual, se houve). Não mexem no estoque de material, só no café pronto do dia', 'id:id*, numero:int#, usuario_id:id>usuario, data_hora:dt, dia_local:dia, forma_pagamento_id:id>forma_pagamento, cliente_id:id>cliente?, copos:int, ml_cafe:qtd, total_cafe_centavos:cent, total_sorteio_centavos:cent, status:' + STATUS_, 1, 'desconto_centavos:cent, promocao_id:id>promocao?'],
+  ['venda_item', 'movimento', 'Itens da venda, com preço, café e tamanho do copo gravados no momento', 'id:id*, venda_id:id>venda, variante_id:id>produto_variante, qtd:int, preco_unit_centavos:cent, ml_cafe_unit:qtd', 0, 'tamanho_ml:int'],
+  ['consumo_proprio', 'movimento', 'Café tomado por nós, registrado na hora. Sai do café pronto, não é venda e não tem cobrança', 'id:id*, numero:int#, usuario_id:id>usuario, consumidor_id:id>usuario, data_hora:dt, dia_local:dia, copos:int, ml_cafe:qtd, observacao:texto?, status:' + STATUS_, 1],
+  ['consumo_proprio_item', 'movimento', 'Itens do consumo próprio, com o café e o tamanho do copo gravados no momento', 'id:id*, consumo_id:id>consumo_proprio, variante_id:id>produto_variante, qtd:int, ml_cafe_unit:qtd, tamanho_ml:int', 0],
   ['ajuste_cafe', 'movimento', 'Perdas e acertos de café pronto', 'id:id*, numero:int#, usuario_id:id>usuario, data_hora:dt, dia_local:dia, tipo:enum(PERDA|ACERTO), ml_cafe:qtd, motivo_id:id>motivo_perda?, observacao:texto?, status:' + STATUS_, 1],
   ['ajuste_estoque', 'movimento', 'Ajustes, perdas de material e transferências entre pessoas', 'id:id*, numero:int#, tipo:enum(AJUSTE|PERDA|TRANSFERENCIA), material_id:id>material, usuario_id:id>usuario, usuario_destino_id:id>usuario?, qtd:qtd, motivo:texto?, data_hora:dt, dia_local:dia, status:' + STATUS_, 1],
   ['lancamento_financeiro', 'movimento', 'Aportes, reembolsos e despesas', 'id:id*, numero:int#, tipo:enum(APORTE|REEMBOLSO|DESPESA), usuario_id:id>usuario, valor_centavos:cent, descricao:texto?, data_hora:dt, dia_local:dia, status:' + STATUS_, 1],
@@ -45,7 +49,7 @@ var DEF_ESQUEMA_ = [
   ['fechamento_dia', 'movimento', 'Fechamento e reabertura do dia (vale a última linha de cada dia)', 'id:id*, dia_local:dia, status:enum(FECHADO|REABERTO), saldo_ml:qtd, usuario_id:id>usuario, data_hora:dt', 0],
 
   ['movimento_estoque', 'livro', 'Livro de movimentação do estoque de material. Gerado pelo sistema', 'id:id*, usuario_id:id>usuario, material_id:id>material, tipo:enum(COMPRA|PREPARO|AJUSTE|PERDA|TRANSF_SAIDA|TRANSF_ENTRADA|ESTORNO), qtd:qtd, data_hora:dt, dia_local:dia, origem_tabela:texto, origem_id:id, estorno_de_id:id?', 0],
-  ['movimento_cafe', 'livro', 'Livro do café pronto, em ml. Gerado pelo sistema', 'id:id*, tipo:enum(PREPARO|VENDA|PERDA|ACERTO|ESTORNO), ml_cafe:qtd, data_hora:dt, dia_local:dia, origem_tabela:texto, origem_id:id, estorno_de_id:id?', 0],
+  ['movimento_cafe', 'livro', 'Livro do café pronto, em ml. Gerado pelo sistema', 'id:id*, tipo:enum(PREPARO|VENDA|PERDA|ACERTO|CONSUMO|ESTORNO), ml_cafe:qtd, data_hora:dt, dia_local:dia, origem_tabela:texto, origem_id:id, estorno_de_id:id?', 0],
 
   ['estorno', 'controle', 'Registro de cada desfazer', 'id:id*, tabela_origem:texto, id_origem:id, motivo:texto?, usuario_id:id>usuario, data_hora:dt', 0],
   ['sequencia', 'controle', 'Contadores dos números sequenciais', 'tabela:texto*, ultimo:int', 0],
@@ -77,7 +81,7 @@ function colunas_(spec) {
 function esquema_() {
   if (esquema_.cache) return esquema_.cache;
   var lista = DEF_ESQUEMA_.map(function (d) {
-    var cols = colunas_(d[3]).concat(d[4] ? colunas_(AUDITORIA_) : []);
+    var cols = colunas_(d[3]).concat(d[4] ? colunas_(AUDITORIA_) : []).concat(d[5] ? colunas_(d[5]) : []);
     var pk = cols.filter(function (c) { return c.pk; })[0];
     return { nome: d[0], grupo: d[1], desc: d[2], colunas: cols, pk: pk ? pk.nome : 'id', auditoria: !!d[4] };
   });
@@ -105,13 +109,13 @@ function sementes_(agora) {
   S.material = [
     ['mat-cafe', 'CAFE', 'Café em pó', 'g', 500, 500, 2700, 50],
     ['mat-filtro', 'FILTRO', 'Filtro de papel', 'un', 10, 30, 900, 1],
-    ['mat-agua', 'AGUA', 'Água', 'ml', 2000, 20000, 1200, 500],
+    ['mat-agua', 'AGUA', 'Água', 'ml', 0, 20000, 0, 500],
     ['mat-leite', 'LEITE', 'Leite', 'ml', 1000, 1000, 550, 100],
     ['mat-canela', 'CANELA', 'Canela em pó', 'g', 10, 50, 800, 5],
     ['mat-acucar', 'ACUCAR', 'Açúcar', 'g', 500, 1000, 450, 50],
     ['mat-copo50', 'COPO50', 'Copo 50 ml', 'un', 20, 50, 1000, 1],
     ['mat-copo200', 'COPO200', 'Copo 200 ml (serve 100 ml)', 'un', 20, 50, 1500, 1]
-  ].map(function (m) { return c({ id: m[0], codigo: m[1], nome: m[2], unidade: m[3], estoque_minimo_qtd: m[4], pacote_qtd: m[5], preco_padrao_centavos: m[6], passo_qtd: m[7], ativo: true }); });
+  ].map(function (m) { return c({ id: m[0], codigo: m[1], nome: m[2], unidade: m[3], estoque_minimo_qtd: m[4], pacote_qtd: m[5], preco_padrao_centavos: m[6], passo_qtd: m[7], ativo: true, controla_estoque: m[0] !== 'mat-agua' }); });
   S.produto = [
     c({ id: 'prd-normal', nome: 'Café normal', categoria: 'CAFE', ativo: true }),
     c({ id: 'prd-canela', nome: 'Café com canela', categoria: 'CAFE', ativo: true }),
@@ -120,12 +124,15 @@ function sementes_(agora) {
   var VARS = [
     ['var-n50', 'prd-normal', 50, 100, 0, 0, 'mat-copo50'], ['var-n100', 'prd-normal', 100, 150, 0, 0, 'mat-copo200'],
     ['var-c50', 'prd-canela', 50, 150, 0, 0.5, 'mat-copo50'], ['var-c100', 'prd-canela', 100, 200, 0, 1, 'mat-copo200'],
-    ['var-l50', 'prd-leite', 50, 200, 20, 0, 'mat-copo50'], ['var-l100', 'prd-leite', 100, 250, 40, 0, 'mat-copo200']
+    ['var-l50', 'prd-leite', 50, 200, 0, 0, 'mat-copo50'], ['var-l100', 'prd-leite', 100, 250, 0, 0, 'mat-copo200']
   ];
   S.produto_variante = VARS.map(function (v) { return c({ id: v[0], produto_id: v[1], tamanho_ml: v[2], ativo: true }); });
   S.preco_venda = VARS.map(function (v) { return { id: 'pv-' + v[0].slice(4), variante_id: v[0], preco_centavos: v[3], vigente_de: v0, vigente_ate: null, criado_em: agora, criado_por: 'usr-sistema' }; });
   S.composicao_copo = VARS.map(function (v) { return c({ id: 'cc-' + v[0].slice(4), variante_id: v[0], leite_ml: v[4], canela_g: v[5], copo_material_id: v[6], vigente_de: v0, vigente_ate: null }); });
-  S.receita_cafe = [c({ id: 'rec-1', usuario_id: null, colheres_por_litro: 4, g_por_colher: 7, filtros_por_litro: 1, acucar_g_por_litro: 0, agua_ml_por_litro: 1000, vigente_de: v0, vigente_ate: null })];
+  S.receita_cafe = [
+    c({ id: 'rec-1', usuario_id: null, colheres_por_litro: 4, g_por_colher: 7, filtros_por_litro: 1, acucar_g_por_litro: 0, agua_ml_por_litro: 1000, vigente_de: v0, vigente_ate: null, base: 'CAFE', leite_ml_por_litro: 0 }),
+    c({ id: 'rec-2', usuario_id: null, colheres_por_litro: 4, g_por_colher: 7, filtros_por_litro: 1, acucar_g_por_litro: 0, agua_ml_por_litro: 600, vigente_de: v0, vigente_ate: null, base: 'CAFE_LEITE', leite_ml_por_litro: 400 })
+  ];
   S.fornecedor = [c({ id: 'for-a', nome: 'Mercado A', ativo: true }), c({ id: 'for-b', nome: 'Mercado B', ativo: true }), c({ id: 'for-o', nome: 'Outro', ativo: true })];
   S.forma_pagamento = [c({ id: 'fp-dinheiro', nome: 'Dinheiro', ativo: true }), c({ id: 'fp-pix', nome: 'Pix', ativo: true }), c({ id: 'fp-cartao', nome: 'Cartão', ativo: true })];
   S.motivo_perda = [c({ id: 'mp-sobra', nome: 'Sobra', ativo: true }), c({ id: 'mp-derramou', nome: 'Derramou', ativo: true }), c({ id: 'mp-proprio', nome: 'Consumo próprio', ativo: true }), c({ id: 'mp-estragou', nome: 'Estragou', ativo: true })];

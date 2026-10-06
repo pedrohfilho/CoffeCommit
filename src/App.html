@@ -36,8 +36,8 @@
     uid: null, user: null, usuarios: [], tela: 'venda', sub: { estoque: 'saldos', cadastros: 'materiais', financeiro: 'resultado', paineis: 'geral', clientes: 'lista' },
     v: {}, msg: null, ocupado: 0, ids: {}, seq: 0,
     cart: {}, pay: null, ticket: null, vs: { sim: false, n: 1, cliente: null, busca: '', res: [], total: 0, ativa: false },
-    prep: { litros: 1, quem: null, plan: {}, aj: {} }, compra: { mat: null, n: 1, valorTxt: '', valorManual: false, forn: null, corrige: null, novoLocal: '' },
-    periodo: 'hoje', est: { contar: null }, rec: null, lista: { novo: { fornecedor: '', forma_pagamento: '', motivo_perda: '' }, edit: null },
+    prep: { litros: 1, quem: null, plan: {}, aj: {}, ajTxt: {}, comMat: false, completando: null, mostraPlano: false, base: 'CAFE' }, recBase: 'CAFE', rd: {}, pend: 0, atualizar: false, desc: { aberto: false, txt: '', promo: null }, promoNova: '', compra: { mat: null, n: 1, valorTxt: '', valorManual: false, forn: null, corrige: null, novoLocal: '' },
+    periodo: 'hoje', est: { contar: null, abrir: null }, cli0: { todos: {} }, rec: null, lista: { novo: { fornecedor: '', forma_pagamento: '', motivo_perda: '' }, edit: null },
     perda: { ml: 50, motivo: null }, mov: { tipo: 'AJUSTE', mat: null, de: null, qtd: 0, txt: '0' }, lanc: { tipo: 'REEMBOLSO', uid: null, valor: 1000 },
     nm: { nome: '', un: 'g' }, cli: { q: '', nq: '', form: null }, zerar: false, novoSorteio: false, auditoria: null
   };
@@ -76,7 +76,7 @@
       ocupar(false);
       if (r.sessao === false) return sair(r.erro);
       if (!r.ok) { aviso(r.erro, true); render(); return; }
-      guardarVista(q, r); iniciarFormularios(q.tela, r); render();
+      guardarVista(q, r); if (r.pend != null) S.pend = r.pend; S.atualizar = !!r.atualizar; iniciarFormularios(q.tela, r); render();
     }).catch(function (e) { ocupar(false); aviso('Sem conexão ou erro: ' + e, true); render(); });
   }
 
@@ -92,7 +92,9 @@
       if (r.sessao === false) return sair(r.erro);
       if (!r.ok) { aviso(r.erro, true); render(); return; }
       aviso(r.msg || 'Pronto.', false);
+      if (r.pend != null) S.pend = r.pend; if (r.atualizar) S.atualizar = true;
       if (r.view && q) { guardarVista(q, r.view); iniciarFormularios(q.tela, r.view); }
+      if (r.viewErro) aviso((r.msg || 'Pronto.') + ' (A tela não atualizou agora; abra de novo.)', false);
       if (opc.depois) opc.depois(r);
       render();
     }).catch(function (e) { ocupar(false); aviso('Sem conexão. Nada foi perdido: toque de novo para repetir.', true); render(); });
@@ -102,7 +104,7 @@
 
   /* valores iniciais dos formulários quando a tela chega */
   function iniciarFormularios(tela, v) {
-    if (tela === 'venda') { if (!S.pay || !v.formas.some(function (f) { return f.id === S.pay; })) S.pay = v.formas[0] && v.formas[0].id; }
+    if (tela === 'venda') { if (S.pay !== 'consumo' && (!S.pay || !v.formas.some(function (f) { return f.id === S.pay; }))) S.pay = v.formas[0] && v.formas[0].id; }
     if (tela === 'preparo') { if (!S.prep.quem) S.prep.quem = S.user.id; }
     if (tela === 'cadastros' && S.rec === null) S.rec = S.user.id;
     if (tela === 'compra') {
@@ -128,6 +130,20 @@
   function ghost(txt, a, v) { return btn(txt, a, v, { cls: 'ghost' }); }
   function sb(txt, a, v, rot, p) { return '<button type="button" class="sb' + (p ? ' p' : '') + '" aria-label="' + esc(rot) + '" data-a="' + a + '" data-v="' + esc(v) + '">' + txt + '</button>'; }
   function step(txt, a, vMenos, vMais, rotMenos, rotMais, w) { return '<div class="step">' + sb('\u2212', a, vMenos, rotMenos) + '<span class="val"' + (w ? ' style="min-width:' + w + 'px"' : '') + '>' + esc(nb(txt)) + '</span>' + sb('+', a, vMais, rotMais, true) + '</div>'; }
+  /* edição em rascunho: digita-se tudo e confirma uma vez em "Salvar" (nada é gravado a cada toque) */
+  function rdChave(g, c) { return g + '|' + c; }
+  function rdTxt(g, c, atual, fmt) { var k = rdChave(g, c); return k in S.rd ? S.rd[k] : (fmt ? fmt(atual) : txtN(atual)); }
+  function rdSujo(g) { return Object.keys(S.rd).some(function (k) { return k.indexOf(g + '|') === 0; }); }
+  function rdLimpar(g) { Object.keys(S.rd).forEach(function (k) { if (k.indexOf(g + '|') === 0) delete S.rd[k]; }); }
+  function rdNum(g, c, atual) { var k = rdChave(g, c); return k in S.rd ? num(S.rd[k]) : atual; }
+  function campo(g, c, rotulo, atual, un, fmt, texto) {
+    var id = 'rd_' + (g + '_' + c).replace(/[^\w-]/g, '_');
+    return '<div class="fld"><label class="lbl" for="' + id + '">' + esc(rotulo) + '</label><div class="fldin"><input id="' + id + '" class="inp" type="text" inputmode="' + (texto ? 'text' : 'decimal') + '" autocomplete="off" data-rd="1" data-g="' + esc(g) + '" data-c="' + esc(c) + '" value="' + esc(rdTxt(g, c, atual, fmt)) + '"' + (texto ? ' style="text-align:left;width:100%"' : '') + '>' + (un ? '<span class="un">' + esc(un) + '</span>' : '') + '</div></div>';
+  }
+  function barraSalvar(g, acao, v, extra) {
+    return rdSujo(g) ? '<div class="row2">' + btn('Salvar', acao, v, { dis: S.ocupado }) + ghost('Descartar', 'rd-descartar', g) + (extra || '') + '</div>' : '';
+  }
+
   /* contador com campo para digitar */
   function stepIn(id, valor, rot, a, vMenos, vMais, rotMenos, rotMais, w) {
     return '<div class="step">' + sb('\u2212', a, vMenos, rotMenos) + '<input id="' + id + '" data-i="' + id + '" class="inp" type="text" inputmode="decimal" autocomplete="off" aria-label="' + esc(rot) + '" value="' + esc(valor) + '" style="width:' + (w || 84) + 'px;min-width:0;text-align:center;padding-left:4px;padding-right:4px">' + sb('+', a, vMais, rotMais, true) + '</div>';
@@ -138,7 +154,7 @@
   function linha(a, b) { return '<div class="row">' + a + b + '</div>'; }
   function entrada(id, valor, o) { o = o || {}; return '<input id="' + id + '" class="inp' + (o.cls ? ' ' + o.cls : '') + '" type="' + (o.tipo || 'text') + '" autocomplete="off"' + (o.ph ? ' placeholder="' + esc(o.ph) + '"' : '') + (o.modo ? ' inputmode="' + o.modo + '"' : '') + ' data-i="' + id + '" value="' + esc(valor) + '">'; }
   function rotulo(id, t) { return '<label class="lbl" for="' + id + '">' + esc(t) + '</label>'; }
-  function corpo(h, rodape) { return '<div class="body">' + h + '</div>' + (rodape ? '<div class="foot">' + rodape + '</div>' : ''); }
+  function corpo(h, rodape, cls) { return '<div class="body">' + h + '</div>' + (rodape ? '<div class="foot' + (cls ? ' ' + cls : '') + '">' + rodape + '</div>' : ''); }
   function carregando() { return '<div class="body">' + card(muted('Carregando\u2026')) + '</div>'; }
   function tiles(l) { return '<div class="tiles">' + l.map(function (x) { return '<div class="tile">' + lbl(x.lbl) + '<div class="tv">' + esc(x.val) + '</div></div>'; }).join('') + '</div>'; }
   function barras(l) { return '<div class="list">' + l.map(function (b) { return '<div><div class="row"><span class="nm">' + esc(b.lbl) + '</span><span class="nm">' + esc(b.val) + '</span></div><div class="bar"><i style="width:' + b.pct + '%"></i></div></div>'; }).join('') + '</div>'; }
@@ -153,86 +169,153 @@
       muted(!vs.ativa ? 'Digite o nome, telefone ou e-mail do cliente.' : !vs.res.length ? 'Nenhum cliente encontrado. Cadastre abaixo.' : vs.total > 3 ? 'Mostrando 3 de ' + vs.total + ': digite mais para refinar.' : '');
   }
   function totaisCarrinho(v) {
-    var t = { copos: 0, ml: 0, cents: 0 };
-    v.produtos.forEach(function (p) { var n = S.cart[p.id] || 0; t.copos += n; t.ml += n * p.cafeMl; t.cents += n * p.preco; });
+    var t = { copos: 0, ml: 0, serv: 0, cents: 0, menor: 0 };
+    v.produtos.forEach(function (p) { var n = S.cart[p.id] || 0; if (!n) return; t.copos += n; t.ml += n * p.cafeMl; t.serv += n * p.tamanho; t.cents += n * p.preco; if (!t.menor || p.preco < t.menor) t.menor = p.preco; });
     return t;
   }
+  /* desconto manual: o que está digitado, em centavos (0 se vazio) */
+  function descontoCents() { var c = centsDe(S.desc.txt); return isNaN(c) ? (String(S.desc.txt).trim() === '' ? 0 : NaN) : Math.max(0, c); }
   function telaVenda() {
     var v = V(); if (!v) return carregando();
-    var t = totaisCarrinho(v), vs = S.vs, nS = vs.sim ? vs.n : 0, totS = nS * v.sorteio.preco, saldo = v.saldoMl;
+    var modoCons = S.pay === 'consumo', t = totaisCarrinho(v), vs = S.vs, nS = (v.sorteio && vs.sim && !modoCons) ? vs.n : 0, totS = nS * (v.sorteio ? v.sorteio.preco : 0), saldo = v.saldoMl;
     var h = '';
-    if (S.ticket) h += card(linha(lbl('Números do sorteio de ' + S.ticket.cliente), ghost('Ok', 'ticket-ok')) + '<div class="numbox"><div class="mono">' + esc(linhasNum(S.ticket.numeros)) + '</div></div>' + muted('Anote para o cliente: cada número tem o seu código.'), 'ticket');
-    h += card('<div class="row" style="flex-wrap:wrap">' + '<div>' + lbl('Café pronto para vender hoje') + '<div class="big">' + esc(fmtQ(saldo, 'ml')) + '</div></div>' + ghost('Fechar o dia', 'ir', 'fechamento') + '</div>' +
-      muted(saldo < 0 ? 'Vendeu ' + fmtN(-saldo) + ' ml a mais que o preparado. Registre o preparo que faltou ou ajuste no Fechamento.' : saldo === 0 ? 'Sem café pronto. Registre um preparo antes de vender.' : 'Cada venda desconta o café usado no copo. O que sobrar no fim do dia vira perda.') +
-      (saldo <= 0 ? ghost('Registrar preparo', 'ir', 'preparo') : ''), saldo <= 0 ? 'warn' : '');
-    h += '<div class="list rspan3">' + v.produtos.map(function (p) {
+    if (S.ticket) {
+      var nn = S.ticket.numeros;
+      h += card(linha(lbl('Números do sorteio de ' + S.ticket.cliente + ' (' + nn.length + ')'), ghost('Ok', 'ticket-ok')) + '<div class="numbox"><div class="mono' + (nn.length > 10 ? ' cols' : '') + '">' + esc(linhasNum(nn)) + '</div></div>' + muted('Anote para o cliente: cada número tem o seu código.'), 'ticket');
+    }
+    h += card('<div class="row">' + '<div>' + lbl('Café pronto hoje') + '<div class="big">' + esc(fmtQ(saldo, 'ml')) + '</div></div>' + '<div class="right">' + ghost('Fechar o dia', 'ir', 'fechamento') + (saldo <= 0 ? ghost('Registrar preparo', 'ir', 'preparo') : '') + '</div></div>' +
+      (saldo < 0 ? muted('Vendeu ' + fmtN(-saldo) + ' ml a mais que o preparado. Registre o preparo que faltou ou ajuste no Fechamento.') : saldo === 0 ? muted('Sem café pronto. Registre um preparo antes de vender.') : ''), saldo <= 0 ? 'warn' : '');
+    h += '<div class="list">' + v.produtos.map(function (p) {
       var n = S.cart[p.id] || 0;
       return '<div class="prow' + (n > 0 ? ' sel' : '') + '"><div><div class="pn">' + esc(p.nome) + '</div>' + muted(nb(p.tamanho + ' ml \u00B7 ' + fmtR(p.preco))) + '</div>' +
-        step(String(n), 'cart', p.id + '|-1', p.id + '|1', 'Tirar um ' + p.nome + ' de ' + p.tamanho + ' ml', 'Adicionar um ' + p.nome + ' de ' + p.tamanho + ' ml', 36) + '</div>';
+        step(String(n), 'cart', p.id + '|-1', p.id + '|1', 'Tirar um ' + p.nome + ' de ' + p.tamanho + ' ml', 'Adicionar um ' + p.nome + ' de ' + p.tamanho + ' ml', 30) + '</div>';
     }).join('') + '</div>';
-    var sorteio = lbl('Sorteio') + '<div class="nm">O cliente quer participar?</div><div class="yn">' + chip('Não', !vs.sim, 'vs-nao', '') + chip('Sim', vs.sim, 'vs-sim', '') + '</div>' +
-      muted('Cada número custa ' + fmtR(v.sorteio.preco) + ' \u00B7 ' + v.sorteio.nAtivos + ' de ' + v.sorteio.meta + ' números no sorteio nº ' + v.sorteio.rodada);
+    var sorteio = '';
+    if (v.sorteio) {
+    sorteio = linha('<div><div class="nm">Sorteio nº ' + v.sorteio.rodada + '</div>' + muted(v.sorteio.nAtivos + ' de ' + v.sorteio.meta + ' \u00B7 ' + fmtR(v.sorteio.preco) + ' por número') + '</div>',
+      '<div class="yn sm">' + chip('Não', !vs.sim, 'vs-nao', '') + chip('Sim', vs.sim, 'vs-sim', '') + '</div>');
     if (vs.sim && !vs.cliente) {
       sorteio += '<div class="col">' + rotulo('vs-busca', 'Buscar cliente') + entrada('vs-busca', vs.busca, { ph: 'Nome, telefone ou e-mail' }) +
         '<div id="vs-res" class="dc">' + htmlResVenda() + '</div>' + ghost('Cadastrar cliente novo', 'vs-novo') + '</div>';
     } else if (vs.sim) {
       sorteio += '<div class="col"><div class="selcli"><div><div class="nm">' + esc(vs.cliente.nome) + '</div>' + muted(vs.cliente.contato) + '</div>' + ghost('Trocar', 'vs-trocar') + '</div>' +
-        linha(lbl('Quantos números?'), stepIn('vs-n-in', String(vs.n), 'Quantidade de números', 'vs-n', '-1', '1', 'Tirar um número do sorteio', 'Adicionar um número do sorteio', 64)) + muted('Pode digitar a quantidade (de 1 a 99).') + '</div>';
+        linha(lbl('Quantos números? (1 a 99)'), stepIn('vs-n-in', String(vs.n), 'Quantidade de números', 'vs-n', '-1', '1', 'Tirar um número do sorteio', 'Adicionar um número do sorteio', 56)) + '</div>';
     }
-    h += card(sorteio);
+    }
+    if (t.copos > 0 && !modoCons) {
+      var dcv = descontoCents(), abertoD = S.desc.aberto;
+      h += card(linha('<div><div class="nm">Desconto</div>' + muted(dcv > 0 ? fmtR(dcv) + (S.desc.promo ? ' \u00B7 ' + nomeDe(v.promocoes || [], S.desc.promo) : '') : 'Opcional: promoção do dia, brinde, cortesia…') + '</div>', ghost(abertoD ? 'Fechar' : (dcv > 0 ? 'Editar' : 'Dar desconto'), 'desc-abrir')) +
+        (abertoD ? '<div class="chips">' + chip('1 café grátis', false, 'desc-rap', 'gratis') + chip('\u221210%', false, 'desc-rap', '10') + chip('\u221250%', false, 'desc-rap', '50') + chip('Sem desconto', false, 'desc-rap', '0') + '</div>' +
+          campo('desc|venda', 'valor', 'Desconto em R$', 0, 'R$', function () { return S.desc.txt; }) +
+          ((v.promocoes || []).length ? lbl('Motivo (opcional)') + '<div class="chips">' + v.promocoes.map(function (x) { return chip(x.nome, S.desc.promo === x.id, 'desc-promo', x.id); }).join('') + '</div>' : '') +
+          muted('Não é uma regra do sistema: você escolhe o valor em cada venda, e o desconto fica registrado para os relatórios.') : ''));
+    }
+    if (v.sorteio && !modoCons) h += card(sorteio);
     h += card(lbl('Últimas vendas de hoje') + '<div class="rows">' + v.ultimas.map(function (u) {
       return '<div class="it"><div><div class="nm">' + esc(nb(u.texto)) + '</div>' + muted(u.hora + ' \u00B7 ' + u.usuario + ' \u00B7 ' + u.forma) + '</div><div class="right"><div class="nm">' + esc(fmtR(u.total)) + '</div>' + ghost('Desfazer', 'estornar', 'venda|' + u.id) + '</div></div>';
     }).join('') + '</div>' + (v.ultimas.length ? '' : muted('Nenhuma venda registrada hoje.')));
-    var bloq = v.fechado || (t.copos === 0 && !vs.sim) || (vs.sim && !vs.cliente);
-    var av = v.fechado ? 'Dia fechado. Reabra em Fechamento do dia para vender.' : (t.copos > 0 && t.ml > saldo ? 'Passa do café pronto (faltam ' + fmtN(t.ml - Math.max(0, saldo)) + ' ml). Dá para registrar mesmo assim e acertar no Fechamento.' : (vs.sim && !vs.cliente ? 'Escolha o cliente dos números do sorteio.' : ''));
-    var partes = []; if (t.copos) partes.push(t.copos + (t.copos > 1 ? ' copos' : ' copo') + ' \u00B7 ' + fmtN(t.ml) + ' ml de café'); if (nS) partes.push(nS + (nS === 1 ? ' número' : ' números') + ' do sorteio');
-    var f = (av ? card('<div class="muted neg">' + esc(nb(av)) + '</div>', 'warn') : '') +
-      '<div class="chips">' + v.formas.map(function (x) { return chip(x.nome, S.pay === x.id, 'pay', x.id); }).join('') + '</div>' +
-      linha(muted(partes.length ? partes.join(' + ') : 'Nada no pedido'), '<div class="tot">' + esc(fmtR(t.cents + totS)) + '</div>') + btn('Registrar venda', 'venda-ok', null, { dis: bloq || S.ocupado });
+    if ((v.consumos || []).length) {
+      h += card(lbl('Consumo nosso hoje (não é venda)') + '<div class="rows">' + v.consumos.map(function (c) {
+        return '<div class="it"><div><div class="nm">' + esc(nb(c.texto)) + '</div>' + muted(c.hora + ' \u00B7 ' + c.quem + ' \u00B7 ' + fmtN(c.ml) + ' ml de café') + '</div>' + ghost('Desfazer', 'estornar', 'consumo_proprio|' + c.id) + '</div>';
+      }).join('') + '</div>');
+    }
+    var temPedido = t.copos > 0 || (v.sorteio && vs.sim && !modoCons);
+    if (!temPedido) return corpo(h, '<div class="muted">' + esc(v.fechado ? 'Dia fechado. Reabra em Fechamento do dia para vender.' : 'Toque nos cafés para montar a venda.') + '</div>', 'slim');
+    if (modoCons) {
+      var quem = S.consumidor || S.user.id, avC = v.fechado ? 'Dia fechado. Reabra em Fechamento do dia para registrar.' : (t.ml > saldo ? 'Passa do café pronto (faltam ' + fmtN(t.ml - Math.max(0, saldo)) + ' ml). Dá para registrar mesmo assim e acertar no Fechamento.' : '');
+      return corpo(h, (avC ? '<div class="muted neg">' + esc(nb(avC)) + '</div>' : '') +
+        '<div class="chips pay">' + v.formas.map(function (x) { return chip(x.nome, false, 'pay', x.id); }).join('') + chip('Consumo', true, 'pay', 'consumo') + '</div>' +
+        '<div class="row"><span class="lbl">Quem tomou</span><div class="chips">' + (v.usuarios || []).map(function (u) { return chip(u.nome, quem === u.id, 'cons-quem', u.id); }).join('') + '</div></div>' +
+        '<div class="muted">' + esc(nb('Consumo nosso \u00B7 ' + t.copos + (t.copos > 1 ? ' copos' : ' copo') + ' \u00B7 ' + fmtN(t.serv) + ' ml' + (t.serv !== t.ml ? ' (' + fmtN(t.ml) + ' ml de café)' : '') + ' \u00B7 sem cobrança')) + '</div>' +
+        '<button type="button" class="btn" aria-label="Registrar consumo" data-a="venda-ok"' + (v.fechado || S.ocupado ? ' disabled' : '') + '>Registrar consumo</button>');
+    }
+    var dc = t.copos > 0 ? descontoCents() : 0, dcOk = !isNaN(dc) && dc <= t.cents, liquido = t.cents - (dcOk ? dc : 0);
+    var bloq = v.fechado || (t.copos === 0 && !nS) || (nS && !vs.cliente) || !dcOk;
+    var av = v.fechado ? 'Dia fechado. Reabra em Fechamento do dia para vender.' : (!dcOk ? 'O desconto precisa ser um valor entre R$ 0,00 e ' + fmtR(t.cents) + '.' : (t.copos > 0 && t.ml > saldo ? 'Passa do café pronto (faltam ' + fmtN(t.ml - Math.max(0, saldo)) + ' ml). Dá para registrar mesmo assim e acertar no Fechamento.' : (vs.sim && !vs.cliente ? 'Escolha o cliente dos números do sorteio.' : '')));
+    var partes = []; if (t.copos) partes.push(t.copos + (t.copos > 1 ? ' copos' : ' copo') + ' \u00B7 ' + fmtN(t.serv) + ' ml' + (t.serv !== t.ml ? ' (' + fmtN(t.ml) + ' ml de café)' : '')); if (nS) partes.push(nS + (nS === 1 ? ' número' : ' números') + ' do sorteio'); if (dcOk && dc > 0) partes.push('desconto ' + fmtR(dc));
+    var f = (av ? '<div class="muted neg">' + esc(nb(av)) + '</div>' : '') +
+      '<div class="chips pay">' + v.formas.map(function (x) { return chip(x.nome, S.pay === x.id, 'pay', x.id); }).join('') + (t.copos > 0 ? chip('Consumo', false, 'pay', 'consumo') : '') + '</div>' +
+      '<div class="muted">' + esc(nb(partes.join(' + '))) + '</div>' +
+      '<button type="button" class="btn" aria-label="Registrar venda" data-a="venda-ok"' + (bloq || S.ocupado ? ' disabled' : '') + '>' + esc(nb('Registrar venda \u00B7 ' + fmtR(liquido + totS))) + '</button>';
     return corpo(h, f);
   }
 
   /* ============================ PREPARO ============================ */
   function consumoPrev(v, litros, plan, quem) {
-    var c = {}, r = v.receitaPor[quem] || v.receitaPor[Object.keys(v.receitaPor)[0]], ch = v.chaves, cafePlano = 0;
+    var porBase = (v.receitas && v.receitas[S.prep.base]) || v.receitaPor, c = {}, r = porBase[quem] || porBase[Object.keys(porBase)[0]], ch = v.chaves, cafePlano = 0;
     function add(id, q) { if (!id || !(q > 0)) return; c[id] = Math.round(((c[id] || 0) + q) * 1000) / 1000; }
-    add(ch.cafe, litros * r.colheres * r.gPorColher); add(ch.filtro, Math.ceil(litros * r.filtros - 1e-9)); add(ch.acucar, litros * r.acucar); add(ch.agua, litros * r.agua);
-    v.produtos.forEach(function (p) { var n = plano(p.id); if (!n) return; cafePlano += n * p.cafeMl; add(ch.leite, n * p.leiteMl); add(ch.canela, n * p.canelaG); add(v.copoPorVariante[p.id], n); });
+    add(ch.cafe, litros * r.colheres * r.gPorColher); add(ch.filtro, Math.ceil(litros * r.filtros - 1e-9)); add(ch.acucar, litros * r.acucar); add(ch.agua, litros * r.agua); add(ch.leite, litros * (r.leite || 0));
+    v.produtos.forEach(function (p) { var n = plano(p.id); if (!n) return; cafePlano += n * p.cafeMl; add(ch.canela, n * p.canelaG); add(v.copoPorVariante[p.id], n); });
     function plano(id) { return plan[id] || 0; }
     return { c: c, cafePlano: cafePlano, receita: r };
   }
-  function realPrev(v, mid) { var calc = consumoPrev(v, S.prep.litros, S.prep.plan, S.prep.quem); return (mid in S.prep.aj) ? S.prep.aj[mid] : (calc.c[mid] || 0); }
+  /* o cálculo vale para o preparo que está sendo registrado ou para o pendente que está sendo completado (receita da época, vinda do servidor) */
+  function calcAtual(v) {
+    var c = S.prep.completando;
+    if (c) { var pe = (v.pendentes || []).filter(function (x) { return x.id === c.id; })[0], pb = (v.receitas && v.receitas[c.base]) || v.receitaPor; return { c: Object.assign({}, pe ? pe.consumo : {}), cafePlano: 0, receita: pb[c.quemId] || pb[Object.keys(pb)[0]] }; }
+    return consumoPrev(v, S.prep.litros, S.prep.plan, S.prep.quem);
+  }
+  function quemPrep() { return S.prep.completando ? S.prep.completando.quemId : S.prep.quem; }
+  function realPrev(v, mid) { var calc = calcAtual(v); return (mid in S.prep.aj) ? S.prep.aj[mid] : (calc.c[mid] || 0); }
   function telaPreparo() {
     var v = V(); if (!v) return carregando();
-    var pr = S.prep, cap = pr.litros * 1000, calc = consumoPrev(v, pr.litros, pr.plan, pr.quem), mats = {}, falta = [], nAj = 0, rr = calc.receita, nomeQ = nomeDe(v.usuarios, pr.quem);
-    v.materiais.forEach(function (m) { mats[m.id] = m; });
-    var ids = Object.keys(calc.c); Object.keys(pr.aj).forEach(function (m) { if (ids.indexOf(m) < 0) ids.push(m); });
-    var linhas = ids.map(function (mid) {
-      var m = mats[mid]; if (!m) return '';
-      var padrao = calc.c[mid] || 0, real = (mid in pr.aj) ? pr.aj[mid] : padrao, tem = ((v.saldos[pr.quem] || {})[mid]) || 0, ok = tem + 1e-9 >= real, mudou = Math.abs(real - padrao) > 1e-9;
-      if (real > 0 && !ok) falta.push(m.nome); if (mudou) nAj++;
-      return '<div class="it"><div><div class="nm">' + esc(m.nome) + '</div><div class="muted' + (ok ? '' : ' neg') + '">' + esc(nb('estoque de ' + nomeQ + ': ' + fmtN(tem) + ' ' + m.un + (mudou ? ' \u00B7 a receita manda ' + fmtN(padrao) + ' ' + m.un : ''))) + '</div></div>' +
-        step(fmtQ(real, m.un), 'prep-aj', mid + '|-1', mid + '|1', 'Diminuir ' + m.nome, 'Aumentar ' + m.nome, 92) + '</div>';
-    }).join('');
-    var livres = v.materiais.filter(function (m) { return ids.indexOf(m.id) < 0; });
-    var h = card(lbl('Litros preparados na cafeteira') + linha(sb('\u2212', 'prep-litros', '-0.5', 'Diminuir meio litro'), '<div style="text-align:center"><div class="big">' + esc(fmtN(pr.litros) + ' L') + '</div>' + muted(fmtN(cap) + ' ml de café base') + '</div>' + sb('+', 'prep-litros', '0.5', 'Aumentar meio litro', true)) +
-      lbl('Quem preparou') + '<div class="chips">' + v.usuarios.map(function (u) { return chip(u.nome, pr.quem === u.id, 'prep-quem', u.id); }).join('') + '</div>');
-    h += card(lbl('Quantos copos vai servir deste preparo') + '<div class="rows">' + v.produtos.map(function (p) {
-      var n = pr.plan[p.id] || 0, det = p.cafeMl + ' ml de café' + (p.leiteMl ? ' + ' + p.leiteMl + ' ml de leite' : '') + (p.canelaG ? ' + ' + fmtN(p.canelaG) + ' g de canela' : '');
-      return '<div class="it"><div><div class="nm">' + esc(nb(p.nome + ' ' + p.tamanho + ' ml')) + '</div>' + muted(det) + '</div>' + step(String(n), 'prep-plan', p.id + '|-1', p.id + '|1', 'Tirar um ' + p.nome + ' de ' + p.tamanho + ' ml do plano', 'Adicionar um ' + p.nome + ' de ' + p.tamanho + ' ml ao plano', 32) + '</div>';
-    }).join('') + '</div>' + linha('<div class="nm">Café usado</div>', '<div class="mid">' + esc(nb(fmtN(calc.cafePlano) + ' de ' + fmtN(cap) + ' ml')) + '</div>') +
-      muted(calc.cafePlano > cap ? 'O plano passa do volume preparado. Aumente os litros ou tire copos.' : 'Sobram ' + fmtN(cap - calc.cafePlano) + ' ml (resíduo da cafeteira e reserva).'), calc.cafePlano > cap ? 'warn' : '');
-    h += card(lbl('Materiais deste preparo (pode editar)') +
-      muted('Receita de ' + nomeQ + (rr.propria ? ' (própria)' : ' (padrão da casa)') + ': ' + fmtN(rr.colheres) + ' colheres de ' + fmtN(rr.gPorColher) + ' g por litro \u00B7 ' + (rr.filtros ? fmtN(rr.filtros) + ' filtro(s) por litro' : 'sem filtro') + (rr.acucar ? ' \u00B7 ' + fmtN(rr.acucar) + ' g de açúcar por litro' : '')) +
-      '<div class="rows">' + linhas + '</div>' +
-      (livres.length ? lbl('Usou mais alguma coisa? (ex.: açúcar)') + '<div class="chips">' + livres.map(function (m) { return chip('+ ' + m.nome, false, 'prep-add', m.id); }).join('') + '</div>' : '') +
-      muted('Os ajustes valem só para este preparo (mudar litros, copos ou quem prepara recalcula). A baixa sai do estoque de quem preparou.') +
-      '<div class="row2">' + (nAj ? ghost('Voltar ao que a receita manda', 'prep-aj-limpar') : '') + ghost('Editar a receita de ' + nomeQ, 'prep-receita') + '</div>');
+    var pr = S.prep, comp = pr.completando, mostraMat = !!comp || pr.comMat, quemId = quemPrep(), nomeQ = nomeDe(v.usuarios, quemId), pend = v.pendentes || [];
+    var cap = (comp ? comp.litros : pr.litros) * 1000, calc = mostraMat ? calcAtual(v) : consumoPrev(v, pr.litros, pr.plan, pr.quem), falta = [], nAj = 0, h = '';
+    // 1) o que ficou pendente
+    if (!comp && pend.length) {
+      h += card(lbl('Materiais pendentes (' + pend.length + ')') + muted('O café já está para vender. Falta dizer o que foi usado: o estoque e o custo só andam depois disso.') +
+        '<div class="rows">' + pend.map(function (x) { return '<div class="it"><div><div class="nm">' + esc(nb('nº ' + x.numero + ' \u00B7 ' + fmtN(x.litros) + ' L' + (x.base === 'CAFE_LEITE' ? ' de café com leite' : '') + ' \u00B7 ' + x.quem)) + '</div>' + muted(x.dia + ' ' + x.hora + (x.copos ? ' \u00B7 plano de ' + x.copos + ' copos' : '')) + '</div>' + ghost('Completar', 'prep-completar', x.id) + '</div>'; }).join('') + '</div>' +
+        btn('Usar a receita em todos (' + pend.length + ')', 'prep-lote', null, { dis: S.ocupado }), 'warn');
+    }
+    // 2) o preparo novo, ou o resumo do que está sendo completado
+    if (comp) {
+      h += card(linha('<div><div class="nm">' + esc(nb('Completando o preparo nº ' + comp.numero)) + '</div>' + muted(nb(fmtN(comp.litros) + ' L' + (comp.base === 'CAFE_LEITE' ? ' de café com leite' : '') + ' \u00B7 ' + comp.quem + ' \u00B7 ' + comp.dia + ' ' + comp.hora)) + '</div>', ghost('Cancelar', 'prep-comp-cancela')) +
+        muted('Os valores já vêm da receita da época. Ajuste o que for diferente (pode digitar 0) e confirme.'));
+    } else {
+      h += card(lbl('Litros preparados na cafeteira') + linha(sb('\u2212', 'prep-litros', '-0.5', 'Diminuir meio litro'), '<div style="text-align:center"><div class="big">' + esc(fmtN(pr.litros) + ' L') + '</div>' + muted(fmtN(cap) + ' ml de café base') + '</div>' + sb('+', 'prep-litros', '0.5', 'Aumentar meio litro', true)) +
+        lbl('Quem preparou') + '<div class="chips">' + v.usuarios.map(function (u) { return chip(u.nome, pr.quem === u.id, 'prep-quem', u.id); }).join('') + '</div>' +
+        lbl('O que foi preparado?') + '<div class="chips">' + chip('Café', pr.base === 'CAFE', 'prep-base', 'CAFE') + chip('Café com leite', pr.base === 'CAFE_LEITE', 'prep-base', 'CAFE_LEITE') + '</div>' +
+        (pr.base === 'CAFE_LEITE' ? muted('O leite entra no preparo: a receita do café com leite já traz a água e o leite por litro.') : ''));
+      var mostraPlano = pr.mostraPlano || pr.comMat || Object.keys(pr.plan).some(function (k) { return pr.plan[k] > 0; });
+      h += !mostraPlano ? '' : card(lbl('Quantos copos vai servir deste preparo (opcional)') + '<div class="rows">' + v.produtos.map(function (p) {
+        var n = pr.plan[p.id] || 0, det = p.cafeMl + ' ml' + (p.canelaG ? ' + ' + fmtN(p.canelaG) + ' g de canela' : '');
+        return '<div class="it"><div><div class="nm">' + esc(nb(p.nome + ' ' + p.tamanho + ' ml')) + '</div>' + muted(det) + '</div>' + step(String(n), 'prep-plan', p.id + '|-1', p.id + '|1', 'Tirar um ' + p.nome + ' de ' + p.tamanho + ' ml do plano', 'Adicionar um ' + p.nome + ' de ' + p.tamanho + ' ml ao plano', 32) + '</div>';
+      }).join('') + '</div>' + linha('<div class="nm">Café usado</div>', '<div class="mid">' + esc(nb(fmtN(calc.cafePlano) + ' de ' + fmtN(cap) + ' ml')) + '</div>') +
+        muted(calc.cafePlano > cap ? 'O plano passa do volume preparado. Aumente os litros ou tire copos.' : 'Sobram ' + fmtN(cap - calc.cafePlano) + ' ml (resíduo da cafeteira e reserva).'), calc.cafePlano > cap ? 'warn' : '');
+      h += card(linha('<div><div class="nm">Informar os materiais agora?</div>' + muted(pr.comMat ? 'Confira o que foi usado antes de registrar.' : 'Não precisa: o café já entra para vender e os materiais ficam pendentes, já preenchidos pela receita, para você confirmar depois.') + '</div>',
+        '<div class="yn sm">' + chip('Não', !pr.comMat, 'prep-mat', '0') + chip('Sim', pr.comMat, 'prep-mat', '1') + '</div>'));
+      if (!mostraPlano) h += ghost('Dizer quantos copos de cada (opcional)', 'prep-plano-abrir');
+    }
+    // 3) materiais (só quando pedido, ou ao completar)
+    if (mostraMat) {
+      var mats = {}, rr = calc.receita;
+      v.materiais.forEach(function (m) { mats[m.id] = m; });
+      var ids = Object.keys(calc.c); Object.keys(pr.aj).forEach(function (m) { if (ids.indexOf(m) < 0) ids.push(m); });
+      var linhas = ids.map(function (mid) {
+        var m = mats[mid]; if (!m) return '';
+        var padrao = calc.c[mid] || 0, real = (mid in pr.aj) ? pr.aj[mid] : padrao, tem = ((v.saldos[quemId] || {})[mid]) || 0, ok = !m.controla || tem + 1e-9 >= real, mudou = Math.abs(real - padrao) > 1e-9;
+        if (real > 0 && !ok) falta.push(m.nome + ' (faltam ' + fmtN(real - Math.max(0, tem)) + ' ' + m.un + ')'); if (mudou) nAj++;
+        var sub = m.controla ? 'estoque de ' + nomeQ + ': ' + fmtN(tem) + ' ' + m.un : 'não controla estoque', txt = (mid in pr.ajTxt) ? pr.ajTxt[mid] : txtN(real);
+        return '<div class="it"><div><div class="nm">' + esc(m.nome) + '</div><div class="muted' + (ok ? '' : ' neg') + '">' + esc(nb(sub + (mudou ? ' \u00B7 a receita manda ' + fmtN(padrao) + ' ' + m.un : ''))) + '</div></div>' +
+          '<div class="stepun">' + stepIn('pa_' + mid, txt, 'Quantidade de ' + m.nome, 'prep-aj', mid + '|-1', mid + '|1', 'Diminuir ' + m.nome, 'Aumentar ' + m.nome, 74) + '<span class="un">' + esc(m.un) + '</span></div></div>';
+      }).join('');
+      var livres = v.materiais.filter(function (m) { return ids.indexOf(m.id) < 0; });
+      h += card(lbl('Materiais deste preparo (pode editar)') +
+        muted('Receita' + ((comp ? comp.base : pr.base) === 'CAFE_LEITE' ? ' do café com leite' : '') + ' de ' + nomeQ + (rr.propria ? ' (própria)' : ' (padrão da casa)') + ': ' + fmtN(rr.colheres) + ' medidas de ' + fmtN(rr.gPorColher) + ' g por litro \u00B7 ' + (rr.filtros ? fmtN(rr.filtros) + ' filtro(s) por litro' : 'sem filtro') + (rr.acucar ? ' \u00B7 ' + fmtN(rr.acucar) + ' g de açúcar por litro' : '') + ' \u00B7 ' + fmtN(rr.agua) + ' ml de água' + (rr.leite ? ' + ' + fmtN(rr.leite) + ' ml de leite' : '') + ' por litro') +
+        '<div class="rows">' + linhas + '</div>' +
+        (livres.length ? lbl('Usou mais alguma coisa? (ex.: açúcar)') + '<div class="chips">' + livres.map(function (m) { return chip('+ ' + m.nome, false, 'prep-add', m.id); }).join('') + '</div>' : '') +
+        muted('Pode digitar qualquer quantidade, inclusive 0. Vale só para este preparo.') +
+        '<div class="row2">' + (nAj ? ghost('Voltar ao que a receita manda', 'prep-aj-limpar') : '') + ghost('Editar a receita de ' + nomeQ, 'prep-receita') + '</div>');
+    }
     h += card(lbl('Preparos de hoje') + '<div class="rows">' + v.hoje.map(function (p) {
-      return '<div class="it"><div><div class="nm">' + esc(nb(fmtN(p.litros) + ' L \u00B7 ' + p.quem)) + '</div>' + muted(p.hora + ' \u00B7 plano de ' + p.copos + ' copos') + '</div>' + ghost('Desfazer', 'estornar', 'preparo|' + p.id) + '</div>';
+      return '<div class="it"><div><div class="nm">' + esc(nb(fmtN(p.litros) + ' L' + (p.base === 'CAFE_LEITE' ? ' de café com leite' : '') + ' \u00B7 ' + p.quem)) + '</div>' + muted(p.hora + ' \u00B7 plano de ' + p.copos + ' copos') + (p.pendente ? '<span class="tag pend">SEM MATERIAIS</span>' : '') + '</div>' + ghost('Desfazer', 'estornar', 'preparo|' + p.id) + '</div>';
     }).join('') + '</div>' + (v.hoje.length ? '' : muted('Nenhum preparo registrado hoje.')));
-    var av = v.fechado ? 'Dia fechado. Reabra em Fechamento do dia para registrar.' : falta.length ? 'Falta estoque de ' + falta.join(', ') + ' para ' + nomeQ + '. Registre a compra, transfira em Estoque ou ajuste a quantidade acima.' : calc.cafePlano > cap ? 'O plano passa do volume preparado.' : '';
-    return corpo(h, (av ? card('<div class="muted neg">' + esc(nb(av)) + '</div>', 'warn') : '') + btn('Registrar preparo', 'prep-ok', null, { dis: !!av || S.ocupado }));
+    var av = comp ? '' : (v.fechado ? 'Dia fechado. Reabra em Fechamento do dia para registrar.' : calc.cafePlano > cap ? 'O plano passa do volume preparado.' : '');
+    var aviso = !av && mostraMat && falta.length ? 'Vai faltar no estoque de ' + nomeQ + ': ' + falta.join(', ') + '. Dá para confirmar mesmo assim: o saldo fica negativo até você lançar a compra ou contar o estoque.' : '';
+    var rotulo = comp ? 'Confirmar materiais' : (pr.comMat ? 'Registrar preparo e materiais' : 'Registrar preparo');
+    if (falta.length && !av) rotulo = comp ? 'Confirmar mesmo assim' : 'Registrar mesmo assim';
+    return corpo(h, (av ? card('<div class="muted neg">' + esc(nb(av)) + '</div>', 'warn') : '') + (aviso ? card('<div class="muted neg">' + esc(nb(aviso)) + '</div>', 'warn') : '') +
+      '<button type="button" class="btn" aria-label="' + (comp ? 'Confirmar materiais' : 'Registrar preparo') + '" data-a="' + (comp ? 'prep-comp-ok' : 'prep-ok') + '"' + (av || S.ocupado ? ' disabled' : '') + '>' + rotulo + '</button>');
   }
   function nomeDe(lista, id) { for (var i = 0; i < lista.length; i++) if (lista[i].id === id) return lista[i].nome; return id; }
 
@@ -244,7 +327,7 @@
     if (cp.corrige) h += card('<div class="nm">Corrigindo a compra #' + cp.corrige.numero + '</div>' + muted('Ao salvar, a compra antiga é desfeita e esta entra no lugar. Se o estoque não permitir, o sistema avisa.') + ghost('Cancelar correção', 'cp-cancela'), 'warn');
     h += card(lbl('Material') + '<div class="chips">' + v.materiais.map(function (x) { return chip(x.nome, x.id === m.id, 'cp-mat', x.id); }).join('') + '</div>' + ghost('Cadastrar material novo', 'ir-cad', 'materiais') +
       linha(lbl('Embalagens compradas'), stepIn('cp-n-in', String(cp.n), 'Embalagens compradas', 'cp-n', '-1', '1', 'Diminuir embalagens', 'Aumentar embalagens', 56)) + muted('Cada embalagem: ' + fmtN(m.pacote) + ' ' + m.un + ' \u00B7 total ' + fmtN(qtd) + ' ' + m.un) +
-      linha(lbl('Valor pago (R$)'), stepIn('cp-val-in', cp.valorTxt, 'Valor pago em reais', 'cp-val', '-50', '50', 'Diminuir valor', 'Aumentar valor', 96)) + muted('Pode digitar o valor, por exemplo 31,70.') +
+      linha(lbl('Valor pago (R$)'), stepIn('cp-val-in', cp.valorTxt, 'Valor pago em reais', 'cp-val', '-50', '50', 'Diminuir valor', 'Aumentar valor', 96)) +
       lbl('Onde comprou') + '<div class="chips">' + v.fornecedores.map(function (f) { return chip(f.nome, f.id === cp.forn, 'cp-forn', f.id); }).join('') + '</div>' +
       rotulo('cp-novo-local', 'Outro local') + '<div class="addlinha">' + entrada('cp-novo-local', cp.novoLocal, { ph: 'Novo local (ex.: Atacadão)' }) + btn('Adicionar', 'cp-add-local', null, { dis: S.ocupado }) + '</div>');
     h += card(lbl('O sistema calcula sozinho') + linha('<div class="nm">Entra no estoque de ' + esc(S.user.nome) + '</div>', '<div class="mid">+' + esc(fmtQ(qtd, m.un)) + '</div>') + linha('<div class="nm">Custo por unidade</div>', '<div class="mid">' + esc(nb(valido ? 'R$ ' + (cents / qtd / 100).toFixed(3).replace('.', ',') + ' / ' + m.un : '\u2014')) + '</div>'), 'warn');
@@ -259,13 +342,15 @@
     var diff = v.diff, h = '';
     h += card(linha('<div class="nm">Produzido hoje</div>', '<div class="mid">' + esc(fmtQ(v.produzidoMl, 'ml')) + '</div>') +
       '<div class="row it"><div><div class="nm">Vendido</div>' + muted(v.copos + ' copos \u00B7 ' + fmtR(v.reais)) + '</div><div class="mid">' + esc(fmtQ(v.vendidoMl, 'ml')) + '</div></div>' +
-      '<div class="row it"><div class="nm">Perda registrada</div><div class="mid">' + esc(fmtQ(v.perdidoMl, 'ml')) + '</div></div>');
+      '<div class="row it"><div class="nm">Perda registrada</div><div class="mid">' + esc(fmtQ(v.perdidoMl, 'ml')) + '</div></div>' +
+      '<div class="row it"><div><div class="nm">Consumo nosso</div>' + muted('café tomado por vocês, registrado na Venda') + '</div><div class="mid">' + esc(fmtQ(v.consumidoMl || 0, 'ml')) + '</div></div>');
     h += card('<div class="nm">' + esc(nb(diff === 0 ? 'Tudo explicado: o dia fecha certinho' : diff > 0 ? 'Faltam ' + fmtN(diff) + ' ml para explicar' : 'As vendas passaram do café preparado em ' + fmtN(-diff) + ' ml')) + '</div>', diff === 0 ? 'ok' : 'warn');
     if (diff < 0 && !v.fechado) h += card(lbl('Vendeu mais do que foi preparado') + muted('Provavelmente um preparo não foi lançado. Lance o preparo (o material sai do estoque de quem preparou) ou, se não der para lançar agora, faça só o ajuste do café.') +
       btn('Registrar o preparo que faltou', 'fe-faltou') + ghost('Só ajustar o café (+' + fmtN(-diff) + ' ml)', 'fe-acerto'), 'warn');
     if (diff > 0 && !v.fechado) h += card(lbl('Registrar perda de café pronto') + linha(sb('\u2212', 'fe-perda', '-50', 'Diminuir 50 ml'), '<div class="big">' + esc(fmtQ(S.perda.ml, 'ml')) + '</div>' + sb('+', 'fe-perda', '50', 'Aumentar 50 ml', true)) +
       ghost('Usar toda a diferença', 'fe-tudo') + lbl('Motivo') + '<div class="chips">' + v.motivos.map(function (m) { return chip(m.nome, S.perda.motivo === m.id, 'fe-motivo', m.id); }).join('') + '</div>' +
       btn('Registrar perda', 'fe-perda-ok', null, { dis: S.perda.ml > diff + 0.001 || S.ocupado }));
+    if (v.pendMateriais) h += card('<div class="nm">' + esc(v.pendMateriais + (v.pendMateriais === 1 ? ' preparo sem materiais lançados' : ' preparos sem materiais lançados')) + '</div>' + muted('Não impede de fechar o dia. O estoque e o custo só atualizam quando os materiais forem completados.') + ghost('Completar agora', 'ir', 'preparo'), 'warn');
     h += card(lbl('Perdas e ajustes de hoje') + '<div class="rows">' + v.ajustes.map(function (a) { return '<div class="it"><div><div class="nm">' + esc(a.texto) + '</div>' + muted(a.meta) + '</div>' + ghost('Desfazer', 'estornar', 'ajuste_cafe|' + a.id) + '</div>'; }).join('') + '</div>' + (v.ajustes.length ? '' : muted('Nenhuma perda ou ajuste hoje.')));
     var f = (v.fechado ? '<div class="msg" style="display:flex"><span>Dia fechado</span>' + btn('Reabrir', 'fe-reabrir', null, { cls: 'ghost' }) + '</div>' : '') + btn('Fechar o dia', 'fe-fechar', null, { dis: diff !== 0 || v.fechado || S.ocupado });
     return corpo(h, f);
@@ -285,11 +370,12 @@
             muted(!ok ? 'Digite a quantidade que você contou.' : diff === 0 ? 'Já está igual: nada a ajustar.' : nomeDe(v.usuarios, c.uid) + ': ' + fmtN(atual) + ' \u2192 ' + fmtN(val) + ' ' + l.un + ' (' + (diff > 0 ? '+' : '\u2212') + fmtN(Math.abs(diff)) + ' ' + l.un + ')') +
             '<div class="row2">' + btn('Registrar contagem', 'es-contar-ok', null, { dis: !ok || diff === 0 || S.ocupado }) + ghost('Cancelar', 'es-contar-nao') + '</div></div>';
         }
-        return card(linha('<div><div class="nm">' + esc(l.nome) + '</div></div>', '<span class="tag ' + (baixo ? 'err' : 'okk') + '">' + (baixo ? 'ABAIXO DO MÍNIMO' : 'OK') + '</span>') +
+        return card(linha('<div class="nm">' + esc(l.nome) + '</div>', '<span class="tag ' + (baixo ? 'err' : 'okk') + '">' + (baixo ? 'ABAIXO DO MÍNIMO' : 'OK') + '</span>') +
           '<div class="trio">' + v.usuarios.map(function (u) { return '<div>' + muted(u.nome) + '<div class="nm">' + esc(fmtQ(l.por[u.id] || 0, l.un)) + '</div></div>'; }).join('') + '<div>' + muted('Total') + '<div class="nm">' + esc(fmtQ(l.total, l.un)) + '</div></div></div>' +
           '<div class="bar"><i style="width:' + Math.max(2, Math.min(100, l.min > 0 ? Math.round(l.total / (l.min * 2) * 100) : 100)) + '%"></i></div>' +
-          linha(lbl('Estoque mínimo'), step(fmtQ(l.min, l.un), 'es-min', l.id + '|-1', l.id + '|1', 'Diminuir mínimo de ' + l.nome, 'Aumentar mínimo de ' + l.nome, 92)) +
-          (painel || '<div class="row2">' + btn('Contei o estoque', 'es-contar', l.id) + ghost('Transferir ou dar baixa', 'es-mexer', l.id) + '</div>'));
+          muted('mínimo ' + fmtN(l.min) + ' ' + l.un) +
+          (painel || '<div class="row2">' + ghost('Contei o estoque', 'es-contar', l.id) + ghost(S.est.abrir === l.id ? 'Menos' : 'Mais', 'es-mais', l.id) + '</div>') +
+          (S.est.abrir === l.id ? campo('estmin|' + l.id, 'min', 'Estoque mínimo', l.min, l.un) + barraSalvar('estmin|' + l.id, 'es-min-salvar', l.id) + ghost('Transferir ou dar baixa', 'es-mexer', l.id) : ''));
       }).join('') + '</div>';
     } else if (sub === 'movs') {
       h += card(lbl('Movimentações do estoque (mais recentes primeiro)') + '<div class="rows">' + v.movs.map(function (m) {
@@ -330,36 +416,45 @@
     var v = V(); if (!v) return carregando();
     var sub = S.sub.cadastros, h = '';
     if (sub === 'materiais') {
-      h += '<div class="sec">' + card(muted('Só o café (500 g por R$ 27,00) vem do seu documento. Os outros valores são de exemplo: ajuste aqui depois do primeiro teste. Nada é apagado: para tirar um material de uso, marque como Inativo.'), 'warn') +
-        card(lbl('Novo material') + rotulo('nm-nome', 'Nome') + entrada('nm-nome', S.nm.nome) + lbl('Unidade de controle') + '<div class="chips">' + ['g', 'ml', 'un'].map(function (u) { return chip(u, S.nm.un === u, 'nm-un', u); }).join('') + '</div>' + btn('Adicionar material', 'nm-ok', null, { dis: S.ocupado })) +
+      h += '<div class="sec">' + card(muted('Digite os valores e toque em Salvar. Só o café (500 g por R$ 27,00) vem do seu documento; os outros valores são de exemplo. Nada é apagado: para tirar um material de uso, marque como Inativo. Material que não entra no controle (ex.: água) nunca trava um preparo.'), 'warn full') +
+        card(lbl('Novo material') + rotulo('nm-nome', 'Nome') + entrada('nm-nome', S.nm.nome) + lbl('Unidade de controle') + '<div class="chips">' + ['g', 'ml', 'un'].map(function (u) { return chip(u, S.nm.un === u, 'nm-un', u); }).join('') + '</div>' + btn('Adicionar material', 'nm-ok', null, { dis: S.ocupado }), 'full') +
         v.materiais.map(function (m) {
-          return card(linha('<div><div class="nm">' + esc(m.nome) + '</div>' + muted('Unidade de controle: ' + m.un) + '</div>', chip(m.ativo ? 'Ativo' : 'Inativo', m.ativo, 'mat-ativo', m.id + '|' + (m.ativo ? 0 : 1))) +
-            linha(lbl('Estoque mínimo'), step(fmtN(m.min) + ' ' + m.un, 'mat-min', m.id + '|-1', m.id + '|1', 'Diminuir mínimo', 'Aumentar mínimo')) +
-            linha(lbl('Tamanho do pacote'), step(fmtN(m.pacote) + ' ' + m.un, 'mat-pac', m.id + '|-1', m.id + '|1', 'Diminuir pacote', 'Aumentar pacote')) +
-            linha(lbl('Preço do pacote'), step(fmtR(m.preco), 'mat-preco', m.id + '|-50', m.id + '|50', 'Diminuir preço', 'Aumentar preço')) +
-            muted('Custo padrão: R$ ' + (m.custoPadrao / 100).toFixed(3).replace('.', ',') + ' por ' + m.un));
+          var g = 'mat|' + m.id;
+          return card(linha('<div><div class="nm">' + esc(m.nome) + '</div>' + muted('Unidade: ' + m.un) + '</div>', chip(m.ativo ? 'Ativo' : 'Inativo', m.ativo, 'mat-ativo', m.id + '|' + (m.ativo ? 0 : 1))) +
+            '<div class="chips">' + chip(m.controla ? 'Controla estoque: sim' : 'Controla estoque: não', m.controla, 'mat-controla', m.id + '|' + (m.controla ? 0 : 1)) + '</div>' +
+            campo(g, 'nome', 'Nome', m.nome, '', function (x) { return x; }, true) +
+            (m.controla ? campo(g, 'min', 'Estoque mínimo', m.min, m.un) + campo(g, 'pacote', 'Tamanho do pacote', m.pacote, m.un) : '') +
+            campo(g, 'preco', m.controla ? 'Preço do pacote' : 'Custo por pacote (opcional)', m.preco / 100, 'R$', function (x) { return moedaTxt(Math.round(x * 100)); }) +
+            muted(m.controla ? 'Custo padrão: R$ ' + (m.custoPadrao / 100).toFixed(3).replace('.', ',') + ' por ' + m.un : 'Não entra no estoque nem trava o preparo. O consumo fica registrado e o custo continua contando.') +
+            barraSalvar(g, 'mat-salvar', m.id));
         }).join('') + '</div>';
     } else if (sub === 'produtos') {
-      h += '<div class="sec">' + v.produtos.map(function (p) {
-        return card(linha('<div><div class="nm">' + esc(p.nome) + '</div>' + muted(p.tamanho + ' ml') + '</div>', chip(p.ativo ? 'À venda' : 'Fora de venda', p.ativo, 'var-ativo', p.id + '|' + (p.ativo ? 0 : 1))) +
-          linha(lbl('Preço de venda'), step(fmtR(p.preco), 'preco', p.id + '|-10', p.id + '|10', 'Baixar preço', 'Subir preço')));
-      }).join('') + card(lbl('Histórico de mudanças de preço') + '<div class="rows">' + v.historico.map(function (t) { return '<div class="it"><div class="muted">' + esc(t) + '</div></div>'; }).join('') + '</div>' + (v.historico.length ? '' : muted('Nenhuma mudança ainda. Ao mudar um preço, o anterior fica guardado aqui. Vendas já feitas guardam o preço da hora.'))) + '</div>';
+      h += '<div class="sec">' + card(muted('O tamanho do copo e o preço valem daqui para frente. O que já foi vendido ou preparado mantém o tamanho e o preço da época. O copo só tem o café: o leite do café com leite entra no preparo (Receitas).'), 'warn full') + v.produtos.map(function (p) {
+        var g = 'prod|' + p.id;
+        return card(linha('<div><div class="nm">' + esc(p.nome) + '</div>' + muted(nb(p.tamanho + ' ml \u00B7 ' + fmtR(p.preco))) + '</div>', chip(p.ativo ? 'À venda' : 'Fora de venda', p.ativo, 'var-ativo', p.id + '|' + (p.ativo ? 0 : 1))) +
+          campo(g, 'tam', 'Tamanho do copo', p.tamanho, 'ml') +
+          campo(g, 'preco', 'Preço de venda', p.preco / 100, 'R$', function (x) { return moedaTxt(Math.round(x * 100)); }) + barraSalvar(g, 'prod-salvar', p.id));
+      }).join('') + card(lbl('Histórico de mudanças de preço') + '<div class="rows">' + v.historico.map(function (t) { return '<div class="it"><div class="muted">' + esc(t) + '</div></div>'; }).join('') + '</div>' + (v.historico.length ? '' : muted('Nenhuma mudança ainda. Ao mudar um preço, o anterior fica guardado aqui. Vendas já feitas guardam o preço da hora.')), 'full') + '</div>';
     } else if (sub === 'receitas') {
-      var esc0 = S.rec === 'casa' || S.rec === null ? '' : S.rec, e = v.escopos.filter(function (x) { return x.id === esc0; })[0] || v.escopos[0], r = e.receita;
-      var campos = [['Colheres de café por litro', 'colheres_por_litro', r.colheres, 1, 0.5, ''], ['Gramas por colher', 'g_por_colher', r.gPorColher, 0.5, 0.5, ' g'], ['Filtros de papel por litro', 'filtros_por_litro', r.filtros, 0.5, 0, ''], ['Açúcar por litro', 'acucar_g_por_litro', r.acucar, 5, 0, ' g'], ['Água por litro', 'agua_ml_por_litro', r.agua, 50, 100, ' ml']];
+      var esc0 = S.rec === 'casa' || S.rec === null ? '' : S.rec, e = v.escopos.filter(function (x) { return x.id === esc0; })[0] || v.escopos[0], comLeite = S.recBase === 'CAFE_LEITE', r = comLeite ? e.receitaLeite : e.receita, propria = comLeite ? e.propriaLeite : e.propria, g = 'rec|' + (e.id || 'casa') + '|' + (comLeite ? 'leite' : 'cafe');
+      var gramas = rdNum(g, 'colheres_por_litro', r.colheres) * rdNum(g, 'g_por_colher', r.gPorColher), filtros = rdNum(g, 'filtros_por_litro', r.filtros), acuc = rdNum(g, 'acucar_g_por_litro', r.acucar);
       h += '<div class="sec">' + card(lbl('Receita de quem?') + '<div class="chips">' + v.escopos.map(function (x) { return chip(x.nome, x.id === e.id, 'rec-escopo', x.id || 'casa'); }).join('') + '</div>' +
-        muted(!e.id ? 'A receita da casa vale para quem não tem receita própria.' : e.propria ? e.nome + ' tem receita própria. Os preparos dele(a) usam estes valores.' : 'Hoje ' + e.nome + ' usa a receita da casa. Mudar qualquer valor abaixo cria a receita própria dele(a); a da casa não muda.') +
-        '<div class="rows">' + campos.map(function (x) {
-          return '<div class="it">' + lbl(x[0]) + step(fmtN(x[2]) + x[5], 'rec', x[1] + '|' + Math.max(x[4], r3(x[2] - x[3])), x[1] + '|' + r3(x[2] + x[3]), 'Diminuir ' + x[0], 'Aumentar ' + x[0], 84) + '</div>';
-        }).join('') + '</div>' + muted('1 L de café leva ' + fmtN(r.colheres * r.gPorColher) + ' g de pó' + (r.filtros ? '' : ' (sem filtro de papel)') + (r.acucar ? ' e ' + fmtN(r.acucar) + ' g de açúcar' : '') + '. A gramatura por colher é valor de exemplo: meça no primeiro preparo.') +
-        (e.id && e.propria ? ghost('Voltar à receita padrão da casa', 'rec-padrao') : '')) +
+        lbl('Receita de qual café?') + '<div class="chips">' + chip('Café', !comLeite, 'rec-base', 'CAFE') + chip('Café com leite', comLeite, 'rec-base', 'CAFE_LEITE') + '</div>' +
+        muted(comLeite ? 'O leite do café com leite entra aqui, no preparo (por litro), e não no copo.' : 'Café preparado só com pó e água.') + ' ' +
+        muted(!e.id ? 'A receita da casa vale para quem não tem receita própria.' : propria ? e.nome + ' tem receita própria. Os preparos dele(a) usam estes valores.' : 'Hoje ' + e.nome + ' usa a receita da casa. Ao salvar, vira a receita própria dele(a); a da casa não muda.') +
+        campo(g, 'colheres_por_litro', 'Medidas de café por litro (colher ou scoop)', r.colheres, '') + campo(g, 'g_por_colher', 'Gramas de cada medida', r.gPorColher, 'g') +
+        campo(g, 'filtros_por_litro', 'Filtros de papel por litro (0 se não usa)', r.filtros, '') + campo(g, 'acucar_g_por_litro', 'Açúcar por litro', r.acucar, 'g') + campo(g, 'agua_ml_por_litro', 'Água por litro (0 se não conta)', r.agua, 'ml') + campo(g, 'leite_ml_por_litro', 'Leite por litro (0 se não leva)', r.leite, 'ml') +
+        muted('1 L de ' + (comLeite ? 'café com leite' : 'café') + ' leva ' + (isNaN(gramas) ? '?' : fmtN(gramas)) + ' g de pó' + (filtros === 0 ? ' (sem filtro de papel)' : '') + (acuc > 0 ? ' e ' + fmtN(acuc) + ' g de açúcar' : '') + (rdNum(g, 'agua_ml_por_litro', r.agua) > 0 || rdNum(g, 'leite_ml_por_litro', r.leite) > 0 ? ', ' + fmtN(rdNum(g, 'agua_ml_por_litro', r.agua) || 0) + ' ml de água' + (rdNum(g, 'leite_ml_por_litro', r.leite) > 0 ? ' e ' + fmtN(rdNum(g, 'leite_ml_por_litro', r.leite)) + ' ml de leite' : '') : '') + '. Meça a gramatura da sua medida no primeiro preparo.') +
+        barraSalvar(g, 'rec-salvar', null) + (e.id && propria ? ghost('Voltar à receita padrão da casa', 'rec-padrao') : ''), 'full') +
         v.composicao.map(function (c) {
-          return card(linha('<div class="nm">' + esc(nb(c.nome + ' ' + c.tamanho + ' ml')) + '</div>', muted('café no copo: ' + c.cafeMl + ' ml')) +
-            linha(lbl('Leite no copo'), step(fmtN(c.leiteMl) + ' ml', 'comp', c.id + '|leite_ml|' + (c.leiteMl - 5), c.id + '|leite_ml|' + (c.leiteMl + 5), 'Menos leite', 'Mais leite')) +
-            linha(lbl('Canela no copo'), step(fmtN(c.canelaG) + ' g', 'comp', c.id + '|canela_g|' + (c.canelaG - 0.5), c.id + '|canela_g|' + (c.canelaG + 0.5), 'Menos canela', 'Mais canela')));
+          var gc = 'comp|' + c.id;
+          return card(linha('<div class="nm">' + esc(nb(c.nome + ' ' + c.tamanho + ' ml')) + '</div>', muted('só o café, sem leite à parte')) +
+            campo(gc, 'canela_g', 'Canela no copo', c.canelaG, 'g') +
+            lbl('Copo usado') + '<div class="chips">' + (v.copos || []).map(function (m) { return chip(m.nome, (S.rd[rdChave(gc, 'copo')] || c.copoId) === m.id, 'comp-copo', c.id + '|' + m.id); }).join('') + '</div>' +
+            barraSalvar(gc, 'comp-salvar', c.id));
         }).join('') + '</div>';
     } else if (sub === 'listas') {
-      h += '<div class="sec">' + card(muted('Aqui você cria, renomeia e desativa os locais de compra, as formas de pagamento e os motivos de perda. Nada é apagado: o que for desativado só deixa de aparecer nas telas.')) + v.listas.map(function (L) {
+      h += '<div class="sec">' + card(muted('Aqui você cria, renomeia e desativa os locais de compra, as formas de pagamento e os motivos de perda. Nada é apagado: o que for desativado só deixa de aparecer nas telas.'), 'full') + v.listas.map(function (L) {
         return card(lbl(L.titulo) + '<div class="rows">' + L.itens.map(function (i) {
           var ed = S.lista.edit && S.lista.edit.id === i.id;
           return ed ? '<div class="it"><div style="width:100%">' + entrada('lst-edit', S.lista.edit.nome) + '<div class="row2">' + btn('Salvar nome', 'lst-edit-ok') + ghost('Cancelar', 'lst-edit-nao') + '</div></div></div>' :
@@ -368,9 +463,9 @@
       }).join('') + '</div>';
     } else {
       h += '<div class="sec">' + v.promocoes.map(function (p) {
-        return card(linha('<div><div class="nm">' + esc(p.nome) + '</div>' + muted('Exemplo de promoção (experimento antes / durante / depois)') + '</div>', chip(p.ativo ? 'Ativa' : 'Inativa', p.ativo, 'promo-ativo', p.id + '|' + (p.ativo ? 0 : 1))) +
-          linha(lbl('Desconto'), step(p.desconto + '%', 'promo-desc', p.id + '|' + (p.desconto - 5), p.id + '|' + (p.desconto + 5), 'Menos desconto', 'Mais desconto')));
-      }).join('') + card(muted('Nesta fase a promoção só fica cadastrada. Ligar promoções às vendas para comparar antes, durante e depois entra quando o café estiver redondo.')) + '</div>';
+        return card(linha('<div><div class="nm">' + esc(p.nome) + '</div>' + muted('Aparece como motivo na hora de dar um desconto') + '</div>', chip(p.ativo ? 'Ativa' : 'Inativa', p.ativo, 'promo-ativo', p.id + '|' + (p.ativo ? 0 : 1))));
+      }).join('') + card(lbl('Nova promoção') + rotulo('promo-nova', 'Nome (ex.: Dia do cliente)') + '<div class="addlinha">' + entrada('promo-nova', S.promoNova, { ph: 'Nome' }) + btn('Adicionar', 'promo-add', null, { dis: S.ocupado }) + '</div>' +
+        muted('Promoção aqui é só um nome para registrar o motivo. O valor do desconto você escolhe em cada venda: nada é aplicado sozinho.'), 'full') + '</div>';
     }
     return corpo(h);
   }
@@ -405,7 +500,7 @@
     }
     var v = V(); if (!v) return carregando();
     if (sub === 'lista') {
-      h += '<div class="sec">' + card(rotulo('cli-q', 'Filtrar clientes') + entrada('cli-q', S.cli.q, { ph: 'Nome, telefone, e-mail ou número' }) + muted(v.total + (v.total === 1 ? ' cliente cadastrado' : ' clientes cadastrados') + ' \u00B7 ' + v.comNumeros + ' com números ativos') + btn('Novo cliente', 'cli-novo')) +
+      h += '<div class="sec">' + card(rotulo('cli-q', 'Filtrar clientes') + entrada('cli-q', S.cli.q, { ph: 'Nome, telefone, e-mail ou número' }) + muted(v.total + (v.total === 1 ? ' cliente cadastrado' : ' clientes cadastrados') + ' \u00B7 ' + v.comNumeros + ' com números ativos') + btn('Novo cliente', 'cli-novo'), 'full') +
         '<div id="cli-res" class="dc">' + htmlResClientes(v) + '</div></div>';
     } else {
       h += telaSorteio(v);
@@ -415,7 +510,7 @@
   function htmlResClientes(v) {
     return v.clientes.map(function (c) {
           return card(linha('<div><div class="nm">' + esc(c.nome) + '</div>' + muted(c.codigo + ' \u00B7 ' + c.telefone) + muted(c.email) + '</div>', chip(c.ativo ? 'Ativo' : 'Inativo', c.ativo, 'cli-ativo', c.id + '|' + (c.ativo ? 0 : 1))) +
-            (c.numeros.length ? '<div class="numbox">' + lbl(c.numeros.length + (c.numeros.length === 1 ? ' número ativo' : ' números ativos')) + '<div class="mono">' + esc(linhasNum(c.numeros)) + '</div></div>' : muted('Nenhum número ativo')) +
+            (c.numeros.length ? '<div class="numbox">' + lbl(c.numeros.length + (c.numeros.length === 1 ? ' número ativo' : ' números ativos')) + '<div class="mono' + (S.cli0.todos[c.id] ? ' cols' : '') + '">' + esc(linhasNum(S.cli0.todos[c.id] || c.numeros.length <= 5 ? c.numeros : c.numeros.slice(0, 5))) + '</div>' + (c.numeros.length > 5 ? ghost(S.cli0.todos[c.id] ? 'Mostrar menos' : 'Ver todos os ' + c.numeros.length, 'cli-todos', c.id) : '') + '</div>' : muted('Nenhum número ativo')) +
             '<div class="row2">' + btn('Vender números', 'cli-vender', c.id, { dis: !c.ativo }) + ghost('Editar dados', 'cli-editar', c.id) + '</div>');
     }).join('') + (v.encontrados > v.mostrando ? muted('Mostrando ' + v.mostrando + ' de ' + v.encontrados + ': use o filtro para achar os outros.') : '') +
       (v.clientes.length ? '' : card(muted(v.total === 0 ? 'Nenhum cliente cadastrado ainda. Toque em "Novo cliente".' : 'Nenhum cliente encontrado para esse filtro.')));
@@ -429,8 +524,8 @@
     return '<div class="sec">' + card(lbl('Sorteio atual: nº ' + v.rodadaAtual) + '<div class="row"><div class="mid">' + esc(nb(v.nAtivos + ' de ' + v.meta + ' números vendidos')) + '</div></div><div class="bar"><i style="width:' + prog + '%"></i></div>' +
       '<div class="nm">' + esc(v.liberado ? 'Meta atingida: faça o sorteio e depois toque em Novo sorteio.' : 'Faltam ' + falta + (falta === 1 ? ' número' : ' números') + ' para o sorteio.') + '</div>' + muted(v.nAtivos + (v.nAtivos === 1 ? ' número' : ' números') + ' de ' + v.nClientes + (v.nClientes === 1 ? ' cliente' : ' clientes') + ' neste sorteio'), v.liberado ? 'ok' : '') +
       card(rotulo('nq-busca', 'Conferir número sorteado') + entrada('nq-busca', S.cli.nq, { ph: 'Número ou código (ex.: 0472)', modo: 'numeric' }) + '<div id="nq-res" class="dc">' + htmlResNq(v) + '</div>') +
-      card(lbl('Regras do sorteio') + linha(lbl('Sorteio a cada'), step(v.meta + ' números', 'cfg', 'sorteio.meta_numeros|' + (v.meta - 10), 'sorteio.meta_numeros|' + (v.meta + 10), 'Menos números por sorteio', 'Mais números por sorteio')) +
-        linha(lbl('Preço de cada número'), step(fmtR(v.preco), 'cfg', 'sorteio.preco_numero_centavos|' + (v.preco - 50), 'sorteio.preco_numero_centavos|' + (v.preco + 50), 'Baixar preço do número', 'Subir preço do número')) + muted('O sorteio é liberado quando os números vendidos chegam à meta. O preço (valor de exemplo) vale para as próximas vendas; números já vendidos guardam o valor da hora.')) +
+      card(lbl('Regras do sorteio') + campo('cfg|sorteio', 'meta', 'Sorteio a cada', v.meta, 'números') +
+        campo('cfg|sorteio', 'preco', 'Preço de cada número', v.preco / 100, 'R$', function (x) { return moedaTxt(Math.round(x * 100)); }) + barraSalvar('cfg|sorteio', 'cfg-salvar', null) + muted('O sorteio é liberado quando os números vendidos chegam à meta. O preço (valor de exemplo) vale para as próximas vendas; números já vendidos guardam o valor da hora.')) +
       card(lbl('Depois de sortear') + muted('O sorteio é feito fora do sistema. Depois, toque em Novo sorteio: este sorteio é encerrado (os números ficam guardados nele) e começa outro do zero. Os cadastros dos clientes ficam.') +
         btn('Novo sorteio', 'ns-pedir', null, { dis: v.nAtivos === 0 }) +
         (S.novoSorteio && v.nAtivos ? card('<div class="nm">' + esc(nb('Encerrar o sorteio nº ' + v.rodadaAtual + ' e começar o nº ' + (v.rodadaAtual + 1) + '? Os ' + v.nAtivos + (v.nAtivos === 1 ? ' número' : ' números') + ' de ' + v.nClientes + (v.nClientes === 1 ? ' cliente ficam guardados' : ' clientes ficam guardados') + ' no sorteio nº ' + v.rodadaAtual + '. No novo só entram números novos.' + (v.liberado ? '' : ' Ainda faltam ' + falta + ' números para a meta de ' + v.meta + '.'))) + '</div>' + linha(ghost('Cancelar', 'ns-nao'), ghost('Confirmar', 'ns-sim')), 'warn') : '')) +
@@ -476,7 +571,7 @@
   function nav() {
     var ativo = SUBTELAS.indexOf(S.tela) >= 0 ? 'mais' : S.tela;
     return '<nav class="nav" aria-label="Telas">' + [['venda', 'Venda'], ['clientes', 'Clientes'], ['preparo', 'Preparo'], ['estoque', 'Estoque'], ['paineis', 'Painéis'], ['mais', 'Mais']].map(function (x) {
-      return '<button type="button" class="nb' + (ativo === x[0] ? ' on' : '') + '" aria-label="' + x[1] + '" data-a="ir" data-v="' + x[0] + '"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONES[x[0]] + '</svg>' + x[1] + '</button>';
+      return '<button type="button" class="nb' + (ativo === x[0] ? ' on' : '') + '" aria-label="' + x[1] + '" data-a="ir" data-v="' + x[0] + '">' + (x[0] === 'preparo' && S.pend > 0 ? '<span class="bdg" aria-hidden="true">' + S.pend + '</span>' : '') + '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONES[x[0]] + '</svg>' + x[1] + '</button>';
     }).join('') + '</nav>';
   }
   function corpoDaTela() {
@@ -502,7 +597,7 @@
     var html;
     if (!S.uid) html = telaEscolha();
     else if (!S.user) html = '<div class="login"><div class="card">' + muted('Abrindo\u2026') + '</div></div>';
-    else html = (S.ocupado ? '<div class="carga"></div>' : '') + '<div class="app"><div class="shell">' + topo() + subbar() + '<div class="scr">' + corpoDaTela() + '</div>' +
+    else html = (S.ocupado ? '<div class="carga"></div>' : '') + '<div class="app"><div class="shell">' + topo() + subbar() + '<div class="scr">' + (S.atualizar ? '<div class="aviso-topo">Falta rodar uma vez, na planilha, CoffeCommit › Instalar / atualizar. O app continua funcionando.</div>' : '') + corpoDaTela() + '</div>' +
       (S.msg ? '<div class="msg' + (S.msg.erro ? ' erro' : '') + '" style="display:flex" role="status"><span>' + esc(nb(S.msg.txt)) + '</span><button type="button" data-a="msg-ok">OK</button></div>' : '') + nav() + '</div></div>';
     raiz.innerHTML = fixNb(html);
     raiz.setAttribute('data-tela', S.tela + S.sub[S.tela]);
@@ -552,8 +647,19 @@
     'msg-ok': function () { S.msg = null; render(); },
     'ticket-ok': function () { S.ticket = null; render(); },
     /* venda */
-    'cart': function (v) { var p = par(v), n = (S.cart[p[0]] || 0) + Number(p[1]); S.cart[p[0]] = Math.max(0, Math.min(99, n)); render(); },
+    'cart': function (v) {
+      var p = par(v), n = (S.cart[p[0]] || 0) + Number(p[1]); S.cart[p[0]] = Math.max(0, Math.min(99, n));
+      if (S.pay === 'consumo' && !Object.keys(S.cart).some(function (k) { return S.cart[k] > 0; })) S.pay = V().formas[0].id;   // sem café no pedido, volta ao pagamento normal
+      render();
+    },
+    'cons-quem': function (v) { S.consumidor = v; render(); },
     'pay': function (v) { S.pay = v; render(); },
+    'desc-abrir': function () { S.desc.aberto = !S.desc.aberto; render(); },
+    'desc-rap': function (v) {
+      var t = totaisCarrinho(V()), c = v === 'gratis' ? t.menor : v === '0' ? 0 : Math.round(t.cents * Number(v) / 100);
+      S.desc.txt = c > 0 ? moedaTxt(c) : ''; if (c === 0) S.desc.promo = null; render();
+    },
+    'desc-promo': function (v) { S.desc.promo = S.desc.promo === v ? null : v; render(); },
     'vs-sim': function () { S.vs.sim = true; S.vs.n = Math.max(1, S.vs.n); render(); },
     'vs-nao': function () { S.vs = { sim: false, n: 1, cliente: null, busca: '', res: [], total: 0, ativa: false }; render(); },
     'vs-n': function (v) { S.vs.n = Math.max(1, Math.min(99, S.vs.n + Number(v))); render(); },
@@ -562,23 +668,38 @@
     'vs-novo': function () { S.cli.form = { id: '', nome: '', tel: '', email: '', volta: 'venda' }; S.tela = 'clientes'; S.sub.clientes = 'form'; S.msg = null; render(); },
     'venda-ok': function () {
       var itens = {}; Object.keys(S.cart).forEach(function (k) { if (S.cart[k] > 0) itens[k] = S.cart[k]; });
-      agir('venda.registrar', { id: idDe('venda'), itens: itens, forma_pagamento_id: S.pay, sorteio: S.vs.sim ? { cliente_id: S.vs.cliente && S.vs.cliente.id, n: S.vs.n } : null },
-        { depois: function (r) { limparId('venda'); S.cart = {}; S.vs = { sim: false, n: 1, cliente: null, busca: '', res: [], total: 0, ativa: false }; S.ticket = r.ticket || null; if (r.passou) S.msg.erro = true; } });
+      if (S.pay === 'consumo') {
+        agir('consumo.registrar', { id: idDe('consumo'), itens: itens, consumidor_id: S.consumidor || S.user.id }, { depois: function (r) { limparId('consumo'); S.cart = {}; S.consumidor = null; S.pay = V().formas[0].id; if (r.passou && S.msg) S.msg.erro = true; } });
+        return;
+      }
+      agir('venda.registrar', { id: idDe('venda'), itens: itens, forma_pagamento_id: S.pay, desconto_centavos: Object.keys(itens).length ? (descontoCents() || 0) : 0, promocao_id: S.desc.promo, sorteio: S.vs.sim ? { cliente_id: S.vs.cliente && S.vs.cliente.id, n: S.vs.n } : null },
+        { depois: function (r) { limparId('venda'); S.desc = { aberto: false, txt: '', promo: null }; S.cart = {}; S.vs = { sim: false, n: 1, cliente: null, busca: '', res: [], total: 0, ativa: false }; S.ticket = r.ticket || null; if (r.passou) S.msg.erro = true; } });
     },
     /* preparo */
-    'prep-litros': function (v) { S.prep.litros = Math.max(0.5, Math.min(10, S.prep.litros + Number(v))); S.prep.aj = {}; render(); },
-    'prep-quem': function (v) { S.prep.quem = v; S.prep.aj = {}; render(); },
-    'prep-plan': function (v) { var p = par(v), n = (S.prep.plan[p[0]] || 0) + Number(p[1]); S.prep.plan[p[0]] = Math.max(0, Math.min(99, n)); S.prep.aj = {}; render(); },
+    'prep-litros': function (v) { S.prep.litros = Math.max(0.5, Math.min(10, S.prep.litros + Number(v))); S.prep.aj = {}; S.prep.ajTxt = {}; render(); },
+    'prep-quem': function (v) { S.prep.quem = v; S.prep.aj = {}; S.prep.ajTxt = {}; render(); },
+    'prep-base': function (v) { S.prep.base = v; S.prep.aj = {}; S.prep.ajTxt = {}; render(); },
+    'prep-plan': function (v) { var p = par(v), n = (S.prep.plan[p[0]] || 0) + Number(p[1]); S.prep.plan[p[0]] = Math.max(0, Math.min(99, n)); S.prep.aj = {}; S.prep.ajTxt = {}; render(); },
     'prep-aj': function (v) {
-      var p = par(v), vv = V(), calc = consumoPrev(vv, S.prep.litros, S.prep.plan, S.prep.quem), m = vv.materiais.filter(function (x) { return x.id === p[0]; })[0], real = realPrev(vv, p[0]);
+      var p = par(v), vv = V(), calc = calcAtual(vv), m = vv.materiais.filter(function (x) { return x.id === p[0]; })[0], real = realPrev(vv, p[0]);
       var novo = Math.max(0, r3(real + Number(p[1]) * m.passo)), padrao = calc.c[p[0]] || 0;
-      if (Math.abs(novo - padrao) < 1e-9) delete S.prep.aj[p[0]]; else S.prep.aj[p[0]] = novo;
+      if (Math.abs(novo - padrao) < 1e-9) { delete S.prep.aj[p[0]]; delete S.prep.ajTxt[p[0]]; } else { S.prep.aj[p[0]] = novo; S.prep.ajTxt[p[0]] = txtN(novo); }
       render();
     },
-    'prep-add': function (v) { var m = V().materiais.filter(function (x) { return x.id === v; })[0]; S.prep.aj[v] = m.passo; render(); },
-    'prep-aj-limpar': function () { S.prep.aj = {}; render(); },
-    'prep-receita': function () { S.rec = S.prep.quem; S.tela = 'cadastros'; S.sub.cadastros = 'receitas'; S.msg = null; carregar(); },
-    'prep-ok': function () { agir('preparo.registrar', { id: idDe('preparo'), litros: S.prep.litros, plano: S.prep.plan, quem: S.prep.quem, ajustes: S.prep.aj }, { depois: function () { limparId('preparo'); S.prep.aj = {}; } }); },
+    'prep-add': function (v) { var m = V().materiais.filter(function (x) { return x.id === v; })[0]; S.prep.aj[v] = m.passo; S.prep.ajTxt[v] = txtN(m.passo); render(); },
+    'prep-aj-limpar': function () { S.prep.aj = {}; S.prep.ajTxt = {}; render(); },
+    'prep-receita': function () { S.recBase = (S.prep.completando ? S.prep.completando.base : S.prep.base) || 'CAFE'; S.rec = quemPrep(); S.tela = 'cadastros'; S.sub.cadastros = 'receitas'; S.msg = null; carregar(); },
+    'prep-plano-abrir': function () { S.prep.mostraPlano = true; render(); },
+    'prep-mat': function (v) { S.prep.comMat = v === '1'; S.prep.aj = {}; S.prep.ajTxt = {}; render(); },
+    'prep-ok': function () { agir('preparo.registrar', { id: idDe('preparo'), base: S.prep.base, modo: S.prep.comMat ? 'completo' : 'rapido', litros: S.prep.litros, plano: S.prep.plan, quem: S.prep.quem, ajustes: S.prep.comMat ? S.prep.aj : {} }, { depois: function (r) { limparId('preparo'); S.prep.aj = {}; S.prep.ajTxt = {}; if (r.atencao && S.msg) S.msg.erro = true; } }); },
+    'prep-completar': function (id) {
+      var x = V().pendentes.filter(function (y) { return y.id === id; })[0]; if (!x) return;
+      S.prep.completando = { id: x.id, numero: x.numero, base: x.base, litros: x.litros, quemId: x.quemId, quem: x.quem, dia: x.dia, hora: x.hora }; S.prep.aj = {}; S.prep.ajTxt = {}; S.msg = null; render();
+      var b = document.querySelector('.body'); if (b) b.scrollTop = 0;
+    },
+    'prep-comp-cancela': function () { S.prep.completando = null; S.prep.aj = {}; S.prep.ajTxt = {}; render(); },
+    'prep-comp-ok': function () { var c = S.prep.completando; agir('preparo.materiais', { ids: [c.id], ajustes: S.prep.aj }, { depois: function (r) { S.prep.completando = null; S.prep.aj = {}; S.prep.ajTxt = {}; if (r.atencao && S.msg) S.msg.erro = true; } }); },
+    'prep-lote': function () { agir('preparo.materiais', { ids: V().pendentes.map(function (x) { return x.id; }) }, { depois: function (r) { if (r.atencao && S.msg) S.msg.erro = true; } }); },
     'ir-cad': function (v) { S.tela = 'cadastros'; S.sub.cadastros = v; S.msg = null; carregar(); },
     'periodo': function (v) { S.periodo = v; carregar(); },
     /* compra */
@@ -603,7 +724,7 @@
     'fe-tudo': function () { var d = V().diff; if (d > 0) S.perda.ml = Math.round(d); render(); },
     'fe-perda-ok': function () { agir('cafe.perda', { id: idDe('perda'), ml: S.perda.ml, motivo_id: S.perda.motivo }, { depois: function () { limparId('perda'); S.perda.ml = 50; } }); },
     'fe-acerto': function () { agir('cafe.acerto', { id: idDe('acerto') }, { depois: function () { limparId('acerto'); } }); },
-    'fe-faltou': function () { var d = V().diff; S.prep.litros = Math.max(0.5, Math.ceil(-d / 500) * 0.5); S.prep.plan = {}; S.prep.aj = {}; S.tela = 'preparo'; aviso('Lance o preparo que faltou. Se souber quantos copos de cada sabor saíram, informe; o material sai do estoque de quem preparou.', false); carregar(); },
+    'fe-faltou': function () { var d = V().diff; S.prep.litros = Math.max(0.5, Math.ceil(-d / 500) * 0.5); S.prep.plan = {}; S.prep.aj = {}; S.prep.ajTxt = {}; S.tela = 'preparo'; aviso('Lance o preparo que faltou. Se souber quantos copos de cada sabor saíram, informe; o material sai do estoque de quem preparou.', false); carregar(); },
     'fe-fechar': function () { agir('dia.fechar', {}); },
     'fe-reabrir': function () { agir('dia.reabrir', {}); },
     /* estoque */
@@ -612,7 +733,12 @@
     'es-de': function (v) { S.mov.de = v; render(); },
     'es-qtd': function (v) { var m = V().materiais.filter(function (x) { return x.id === S.mov.mat; })[0], q = S.mov.qtd + Number(v) * m.passo; if (S.mov.tipo === 'AJUSTE' || q >= 0) { S.mov.qtd = r3(q); S.mov.txt = txtN(S.mov.qtd); } render(); },
     'es-ok': function () { agir('estoque.mover', { id: idDe('mov'), tipo: S.mov.tipo, material_id: S.mov.mat, de: S.mov.de, qtd: S.mov.qtd }, { depois: function () { limparId('mov'); S.mov.qtd = 0; S.mov.txt = '0'; } }); },
-    'es-min': function (v) { var p = par(v), l = V().linhas.filter(function (x) { return x.id === p[0]; })[0]; agir('material.salvar', { id: p[0], estoque_minimo_qtd: Math.max(0, r3(l.min + Number(p[1]) * l.passo)) }); },
+    'es-min-salvar': function (id) {
+      var l = V().linhas.filter(function (x) { return x.id === id; })[0], g = 'estmin|' + id, min = rdNum(g, 'min', l.min);
+      if (isNaN(min) || min < 0) { aviso('Digite o estoque mínimo (0 ou mais).', true); render(); return; }
+      agir('material.salvar', { id: id, estoque_minimo_qtd: min }, { depois: function () { rdLimpar(g); } });
+    },
+    'es-mais': function (v) { S.est.abrir = S.est.abrir === v ? null : v; render(); },
     'es-contar': function (v) { S.est.contar = { mat: v, uid: S.user.id, txt: '' }; render(); },
     'es-contar-uid': function (v) { S.est.contar.uid = v; render(); },
     'es-contar-nao': function () { S.est.contar = null; render(); },
@@ -624,22 +750,52 @@
     'nm-un': function (v) { S.nm.un = v; render(); },
     'nm-ok': function () { agir('material.salvar', { novo_id: idDe('material'), nome: S.nm.nome, unidade: S.nm.un }, { depois: function () { limparId('material'); S.nm.nome = ''; } }); },
     'mat-ativo': function (v) { var p = par(v); agir('material.salvar', { id: p[0], ativo: p[1] === '1' }); },
-    'mat-min': function (v) { var p = par(v), m = V().materiais.filter(function (x) { return x.id === p[0]; })[0]; agir('material.salvar', { id: p[0], estoque_minimo_qtd: Math.max(0, m.min + Number(p[1]) * m.passo) }); },
-    'mat-pac': function (v) { var p = par(v), m = V().materiais.filter(function (x) { return x.id === p[0]; })[0]; agir('material.salvar', { id: p[0], pacote_qtd: Math.max(m.passo, m.pacote + Number(p[1]) * m.passo) }); },
-    'mat-preco': function (v) { var p = par(v), m = V().materiais.filter(function (x) { return x.id === p[0]; })[0]; agir('material.salvar', { id: p[0], preco_padrao_centavos: Math.max(0, m.preco + Number(p[1])) }); },
-    'preco': function (v) { var p = par(v), x = V().produtos.filter(function (y) { return y.id === p[0]; })[0]; agir('preco.alterar', { variante_id: p[0], preco_centavos: Math.max(10, x.preco + Number(p[1])) }); },
+    'mat-controla': function (v) { var p = par(v); agir('material.salvar', { id: p[0], controla_estoque: p[1] === '1' }); },
+    'mat-salvar': function (id) {
+      var m = V().materiais.filter(function (x) { return x.id === id; })[0], g = 'mat|' + id;
+      var min = m.controla ? rdNum(g, 'min', m.min) : m.min, pac = m.controla ? rdNum(g, 'pacote', m.pacote) : m.pacote, reais = rdNum(g, 'preco', m.preco / 100), nome = (rdChave(g, 'nome') in S.rd) ? String(S.rd[rdChave(g, 'nome')]).trim() : m.nome;
+      if (isNaN(min) || isNaN(pac) || isNaN(reais) || min < 0 || pac <= 0 || reais < 0) { aviso('Confira os números: use só dígitos (a vírgula vale); o pacote precisa ser maior que zero.', true); render(); return; }
+      if (nome.length < 2) { aviso('Digite o nome do material.', true); render(); return; }
+      agir('material.salvar', { id: id, nome: nome, estoque_minimo_qtd: min, pacote_qtd: pac, preco_padrao_centavos: Math.round(reais * 100) }, { depois: function () { rdLimpar(g); } });
+    },
+    'rd-descartar': function (g) { rdLimpar(g); render(); },
+    'comp-copo': function (v) { var p = par(v); S.rd[rdChave('comp|' + p[0], 'copo')] = p[1]; render(); },
+    'prod-salvar': function (id) {
+      var p = V().produtos.filter(function (x) { return x.id === id; })[0], g = 'prod|' + id, reais = rdNum(g, 'preco', p.preco / 100), tam = rdNum(g, 'tam', p.tamanho);
+      if (isNaN(reais) || reais < 0.01) { aviso('Digite o preço em reais (a partir de 0,01).', true); render(); return; }
+      if (isNaN(tam) || tam < 20 || tam > 1000) { aviso('O tamanho do copo deve ficar entre 20 e 1.000 ml.', true); render(); return; }
+      agir('variante.salvar', { variante_id: id, tamanho_ml: Math.round(tam), preco_centavos: Math.round(reais * 100) }, { depois: function () { rdLimpar(g); } });
+    },
     'var-ativo': function (v) { var p = par(v); agir('variante.ativo', { id: p[0], ativo: p[1] === '1' }); },
-    'rec': function (v) { var p = par(v), o = { usuario_id: S.rec === 'casa' || !S.rec ? null : S.rec }; o[p[0]] = Number(p[1]); agir('receita.salvar', o); },
+    'rec-salvar': function () {
+      var escId = S.rec === 'casa' || !S.rec ? '' : S.rec, e = V().escopos.filter(function (x) { return x.id === escId; })[0] || V().escopos[0], comLeite = S.recBase === 'CAFE_LEITE', r = comLeite ? e.receitaLeite : e.receita, g = 'rec|' + (e.id || 'casa') + '|' + (comLeite ? 'leite' : 'cafe');
+      var campos = ['colheres_por_litro', 'g_por_colher', 'filtros_por_litro', 'acucar_g_por_litro', 'agua_ml_por_litro', 'leite_ml_por_litro'], atual = { colheres_por_litro: r.colheres, g_por_colher: r.gPorColher, filtros_por_litro: r.filtros, acucar_g_por_litro: r.acucar, agua_ml_por_litro: r.agua, leite_ml_por_litro: r.leite || 0 };
+      var o = { usuario_id: e.id || null, base: comLeite ? 'CAFE_LEITE' : 'CAFE' };
+      campos.forEach(function (k) { o[k] = rdNum(g, k, atual[k]); });
+      var bad = campos.some(function (k) { return isNaN(o[k]) || o[k] < 0; });
+      if (bad || o.colheres_por_litro <= 0 || o.g_por_colher <= 0) { aviso('Confira os números: use só dígitos (a vírgula vale). Café e gramas precisam ser maiores que zero; filtro, açúcar, água e leite podem ser 0.', true); render(); return; }
+      agir('receita.salvar', o, { depois: function () { rdLimpar(g); } });
+    },
+    'comp-salvar': function (id) {
+      var c = V().composicao.filter(function (x) { return x.id === id; })[0], g = 'comp|' + id, canela = rdNum(g, 'canela_g', c.canelaG);
+      if (isNaN(canela) || canela < 0) { aviso('Confira os números do copo.', true); render(); return; }
+      agir('composicao.salvar', { variante_id: id, canela_g: canela, copo_material_id: S.rd[rdChave(g, 'copo')] || c.copoId }, { depois: function () { rdLimpar(g); } });
+    },
+    'cfg-salvar': function () {
+      var v = V(), g = 'cfg|sorteio', meta = rdNum(g, 'meta', v.meta), reais = rdNum(g, 'preco', v.preco / 100);
+      if (isNaN(meta) || isNaN(reais)) { aviso('Confira os números do sorteio.', true); render(); return; }
+      agir('config.salvar', { itens: { 'sorteio.meta_numeros': meta, 'sorteio.preco_numero_centavos': Math.round(reais * 100) } }, { depois: function () { rdLimpar(g); } });
+    },
     'rec-escopo': function (v) { S.rec = v; render(); },
-    'rec-padrao': function () { agir('receita.padrao', { usuario_id: S.rec }); },
+    'rec-base': function (v) { S.recBase = v; render(); },
+    'rec-padrao': function () { agir('receita.padrao', { usuario_id: S.rec, base: S.recBase }); },
     'lst-add': function (v) { agir('lista.salvar', { tabela: v, novo_id: idDe('lista-' + v), nome: S.lista.novo[v] }, { depois: function () { limparId('lista-' + v); S.lista.novo[v] = ''; } }); },
     'lst-ativo': function (v) { var p = par(v); agir('lista.salvar', { tabela: p[0], id: p[1], ativo: p[2] === '1' }); },
     'lst-edit': function (v) { var p = par(v), L = V().listas.filter(function (x) { return x.tabela === p[0]; })[0], i = L.itens.filter(function (x) { return x.id === p[1]; })[0]; S.lista.edit = { tabela: p[0], id: p[1], nome: i.nome }; render(); },
     'lst-edit-ok': function () { var e = S.lista.edit; agir('lista.salvar', { tabela: e.tabela, id: e.id, nome: e.nome }, { depois: function () { S.lista.edit = null; } }); },
     'lst-edit-nao': function () { S.lista.edit = null; render(); },
-    'comp': function (v) { var p = par(v), o = { variante_id: p[0] }; o[p[1]] = Math.max(0, Number(p[2])); agir('composicao.salvar', o); },
     'promo-ativo': function (v) { var p = par(v); agir('promocao.salvar', { id: p[0], ativo: p[1] === '1' }); },
-    'promo-desc': function (v) { var p = par(v); agir('promocao.salvar', { id: p[0], desconto_pct: Math.max(0, Math.min(50, Number(p[1]))) }); },
+    'promo-add': function () { agir('promocao.salvar', { novo_id: idDe('promo'), nome: S.promoNova }, { depois: function () { limparId('promo'); S.promoNova = ''; } }); },
     /* financeiro */
     'lanc-tipo': function (v) { S.lanc.tipo = v; render(); },
     'lanc-uid': function (v) { S.lanc.uid = v; render(); },
@@ -660,9 +816,9 @@
         }
       });
     },
+    'cli-todos': function (v) { S.cli0.todos[v] = !S.cli0.todos[v]; var el = document.getElementById('cli-res'); if (el && V()) { el.innerHTML = fixNb(htmlResClientes(V())); } else render(); },
     'cli-ativo': function (v) { var p = par(v); agir('cliente.ativo', { id: p[0], ativo: p[1] === '1' }); },
     'cli-vender': function (v) { var c = V().clientes.filter(function (x) { return x.id === v; })[0]; chamar('cliente.mascarado', { id: c.id }).then(function (m) { if (m.ok && m.cliente) { restaurarVenda(m.cliente); } }); },
-    'cfg': function (v) { var p = par(v); agir('config.salvar', { chave: p[0], valor: Number(p[1]) }); },
     'ns-pedir': function () { S.novoSorteio = true; render(); },
     'ns-nao': function () { S.novoSorteio = false; render(); },
     'ns-sim': function () { agir('sorteio.novo', { id: idDe('sorteio') }, { depois: function () { limparId('sorteio'); S.novoSorteio = false; } }); },
@@ -685,6 +841,7 @@
     'nq-busca': function (v) { S.cli.nq = v; recarregarClientes(); },
     'cli-nome': function (v) { S.cli.form.nome = v; }, 'cli-tel': function (v) { S.cli.form.tel = v; }, 'cli-email': function (v) { S.cli.form.email = v; },
     'nm-nome': function (v) { S.nm.nome = v; },
+    'promo-nova': function (v) { S.promoNova = v; },
     'vs-n-in': function (v) { var d = String(v).replace(/\D/g, ''); if (d === '') return; S.vs.n = Math.max(1, Math.min(99, parseInt(d, 10))); render(); },
     'cp-n-in': function (v) { var d = String(v).replace(/\D/g, ''); if (d === '') return; definirEmbalagens(parseInt(d, 10)); render(); },
     'cp-val-in': function (v) { S.compra.valorTxt = v; S.compra.valorManual = true; render(); },
@@ -705,6 +862,13 @@
     var id = e.target && e.target.getAttribute && e.target.getAttribute('data-i');
     if (id && ENTRADAS[id]) ENTRADAS[id](e.target.value);
     else if (id && id.indexOf('lst-novo-') === 0) S.lista.novo[id.slice(9)] = e.target.value;
+    else if (e.target && e.target.getAttribute && e.target.getAttribute('data-g') === 'desc|venda') { S.desc.txt = e.target.value; render(); }
+    else if (e.target && e.target.hasAttribute && e.target.hasAttribute('data-rd')) { S.rd[rdChave(e.target.getAttribute('data-g'), e.target.getAttribute('data-c'))] = e.target.value; render(); }
+    else if (id && id.indexOf('pa_') === 0) {
+      var mid = id.slice(3), txt = e.target.value, n = num(txt); S.prep.ajTxt[mid] = txt;
+      if (!isNaN(n) && n >= 0) { var padrao = calcAtual(V()).c[mid] || 0; if (Math.abs(n - padrao) < 1e-9) delete S.prep.aj[mid]; else S.prep.aj[mid] = n; }
+      render();
+    }
   });
 
   function boot() {

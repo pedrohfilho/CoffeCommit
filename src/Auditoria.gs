@@ -8,7 +8,7 @@ var RX_DT_ = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
 var RX_DIA_ = /^\d{4}-\d{2}-\d{2}$/;
 
 function auditar_(ss) {
-  var db = new Banco(ss), achados = [], contagens = {};
+  var db = new Banco(ss, { semCache: true }), achados = [], contagens = {};
   function A(nivel, tabela, id, msg) { achados.push({ nivel: nivel, tabela: tabela, id: id, msg: msg }); }
   var existe = {};
   function tem(tab, id) { if (!existe[tab]) { existe[tab] = {}; db.t(tab).forEach(function (r) { existe[tab][r[esquemaTabela_(tab).pk]] = true; }); } return !!existe[tab][id]; }
@@ -35,9 +35,13 @@ function auditar_(ss) {
     });
   });
 
+  // livros sem registro de origem = gravação interrompida no meio (inerte: não entra em saldo, mas convém limpar)
+  ['movimento_estoque', 'movimento_cafe'].forEach(function (l) {
+    var ids = {}; db.t(l).forEach(function (m) { if (m.estorno_de_id) return; var t = m.origem_tabela; if (!ids[t]) { ids[t] = {}; db.t(t).forEach(function (r) { ids[t][r.id] = true; }); } if (!ids[t][m.origem_id]) A('ALERTA', l, m.id, 'linha do livro sem o registro de origem (' + t + ' ' + m.origem_id + '): gravação interrompida'); });
+  });
   // estoque nunca negativo
   var sal = saldosEstoque_(db), mats = mapa_(db, 'material'), us = mapa_(db, 'usuario');
-  Object.keys(sal).forEach(function (u) { Object.keys(sal[u]).forEach(function (m) { if (sal[u][m] < -1e-9) A('ERRO', 'movimento_estoque', u + '/' + m, 'estoque negativo de ' + (mats[m] ? mats[m].nome : m) + ' para ' + (us[u] ? us[u].nome : u)); }); });
+  Object.keys(sal).forEach(function (u) { Object.keys(sal[u]).forEach(function (m) { if (sal[u][m] < -1e-9) A('ALERTA', 'movimento_estoque', u + '/' + m, 'estoque negativo de ' + (mats[m] ? mats[m].nome : m) + ' para ' + (us[u] ? us[u].nome : u) + ': falta lançar uma compra ou fazer a contagem'); }); });
 
   // totais das vendas e compras
   var itV = {}; db.t('venda_item').forEach(function (i) { (itV[i.venda_id] = itV[i.venda_id] || []).push(i); });
@@ -46,12 +50,19 @@ function auditar_(ss) {
   db.t('venda').forEach(function (v) {
     if (v.status === 'GRAVANDO') return;
     var its = itV[v.id] || [], tot = soma_(its, function (i) { return i.qtd * i.preco_unit_centavos; }), ml = soma_(its, function (i) { return i.qtd * i.ml_cafe_unit; });
-    if (tot !== v.total_cafe_centavos) A('ERRO', 'venda', v.id, 'total do café (' + v.total_cafe_centavos + ') difere da soma dos itens (' + tot + ')');
+    if (tot !== v.total_cafe_centavos + (v.desconto_centavos || 0)) A('ERRO', 'venda', v.id, 'total do café (' + v.total_cafe_centavos + ') mais o desconto (' + (v.desconto_centavos || 0) + ') difere da soma dos itens (' + tot + ')');
+    if ((v.desconto_centavos || 0) > tot) A('ERRO', 'venda', v.id, 'desconto maior que o valor dos itens');
     if (Math.abs(ml - v.ml_cafe) > 1e-6) A('ERRO', 'venda', v.id, 'ml de café difere da soma dos itens');
     if (Math.abs((cafeOrig['venda:' + v.id] || 0) + v.ml_cafe) > 1e-6) A('ERRO', 'venda', v.id, 'livro do café não bate com a venda');
     var ns = numV[v.id] || [];
     if (soma_(ns, function (n) { return n.valor_centavos; }) !== v.total_sorteio_centavos) A('ERRO', 'venda', v.id, 'total do sorteio difere da soma dos números');
     if (ns.length && !v.cliente_id) A('ERRO', 'venda', v.id, 'venda com números do sorteio sem cliente');
+  });
+  var itCo = {}; db.t('consumo_proprio_item').forEach(function (i) { (itCo[i.consumo_id] = itCo[i.consumo_id] || []).push(i); });
+  db.t('consumo_proprio').forEach(function (c) {
+    if (c.status === 'GRAVANDO') return;
+    if (Math.abs(soma_(itCo[c.id] || [], function (i) { return i.qtd * i.ml_cafe_unit; }) - c.ml_cafe) > 1e-6) A('ERRO', 'consumo_proprio', c.id, 'ml de café difere da soma dos itens');
+    if (Math.abs((cafeOrig['consumo_proprio:' + c.id] || 0) + c.ml_cafe) > 1e-6) A('ERRO', 'consumo_proprio', c.id, 'livro do café não bate com o consumo');
   });
   var itC = {}; db.t('compra_item').forEach(function (i) { (itC[i.compra_id] = itC[i.compra_id] || []).push(i); });
   var estOrig = {}; db.t('movimento_estoque').forEach(function (m) { if (!m.estorno_de_id) estOrig[m.origem_tabela + ':' + m.origem_id] = (estOrig[m.origem_tabela + ':' + m.origem_id] || 0) + m.qtd; });
@@ -61,7 +72,7 @@ function auditar_(ss) {
     if (soma_(its, function (i) { return i.valor_centavos; }) !== c.valor_total_centavos) A('ERRO', 'compra', c.id, 'valor total difere da soma dos itens');
     if (Math.abs(soma_(its, function (i) { return i.qtd_base_qtd; }) - (estOrig['compra:' + c.id] || 0)) > 1e-6) A('ERRO', 'compra', c.id, 'livro do estoque não bate com a compra');
   });
-  var cons = {}; db.t('preparo_consumo').forEach(function (c) { cons[c.preparo_id] = (cons[c.preparo_id] || 0) + c.qtd_real_qtd; });
+  var cons = {}; db.t('preparo_consumo').forEach(function (c) { if (controla_(mats[c.material_id])) cons[c.preparo_id] = (cons[c.preparo_id] || 0) + c.qtd_real_qtd; });
   db.t('preparo').forEach(function (p) {
     if (p.status === 'GRAVANDO') return;
     if (Math.abs((cons[p.id] || 0) + (estOrig['preparo:' + p.id] || 0)) > 1e-6) A('ERRO', 'preparo', p.id, 'livro do estoque não bate com o consumo do preparo');
@@ -144,7 +155,7 @@ function csvDaTabela_(db, nome) {
   return linhas.join('\n') + '\n';
 }
 function exportarCSV_(ss, agoraBase) {
-  var db = new Banco(ss), carimbo = agoraBase.diaLocal + ' ' + formatarLocal_(agoraBase.dataHora, 'HHmm');
+  var db = new Banco(ss, { semCache: true }), carimbo = agoraBase.diaLocal + ' ' + formatarLocal_(agoraBase.dataHora, 'HHmm');
   var pasta = DriveApp.createFolder('CoffeCommit export ' + carimbo);
   ordemDeCarga_().forEach(function (n) { pasta.createFile(n + '.csv', csvDaTabela_(db, n), MimeType.CSV); });
   pasta.createFile('schema.sql', gerarDDL_(), MimeType.PLAIN_TEXT);

@@ -41,13 +41,24 @@ function ver_(db, ctx, q) {
 function itensPorVenda_(db) {
   var m = {}, vars = mapa_(db, 'produto_variante'), prods = mapa_(db, 'produto');
   db.t('venda_item').forEach(function (i) { (m[i.venda_id] = m[i.venda_id] || []).push(i); });
-  return { itens: m, rotulo: function (i) { var v = vars[i.variante_id]; return i.qtd + '\u00D7 ' + prods[v.produto_id].nome.replace('Café ', '') + ' ' + v.tamanho_ml + ' ml'; } };
+  return { itens: m, promos: mapa_(db, 'promocao'), rotulo: function (i) { var v = vars[i.variante_id]; return i.qtd + '\u00D7 ' + prods[v.produto_id].nome.replace('Café ', '') + ' ' + (i.tamanho_ml != null ? i.tamanho_ml : v.tamanho_ml) + ' ml'; } };
 }
 function textoVenda_(v, ipv) {
   var partes = [], its = ipv.itens[v.id] || [];
   if (its.length) partes.push(its.map(ipv.rotulo).join(', '));
   if (v.total_sorteio_centavos > 0) partes.push('com sorteio');
-  return partes.join(' + ') || 'Sem itens';
+  var txt = partes.join(' + ') || 'Sem itens';
+  if (v.desconto_centavos > 0) txt += ' \u00B7 desconto ' + fmtR_(v.desconto_centavos) + (ipv.promos && ipv.promos[v.promocao_id] ? ' (' + ipv.promos[v.promocao_id].nome + ')' : '');
+  return txt;
+}
+
+function consumosDeHoje_(db, dia, us) {
+  var vars = mapa_(db, 'produto_variante'), prods = mapa_(db, 'produto'), itens = {};
+  db.t('consumo_proprio_item').forEach(function (i) { (itens[i.consumo_id] = itens[i.consumo_id] || []).push(i); });
+  return db.t('consumo_proprio').filter(function (c) { return c.status === 'ATIVO' && c.dia_local === dia; }).slice(-6).reverse().map(function (c) {
+    var txt = (itens[c.id] || []).map(function (i) { var v = vars[i.variante_id]; return i.qtd + '\u00D7 ' + prods[v.produto_id].nome.replace('Café ', '') + ' ' + i.tamanho_ml + ' ml'; }).join(', ');
+    return { id: c.id, numero: c.numero, hora: hm_(c.data_hora), quem: nomeDe_(us, c.consumidor_id), texto: txt, ml: c.ml_cafe };
+  });
 }
 
 /* ---------------- Venda ---------------- */
@@ -55,16 +66,20 @@ function viewVenda_(db, ctx) {
   var ts = ctx.agora.dataHora, dia = ctx.agora.diaLocal, prods = mapa_(db, 'produto');
   var produtos = db.t('produto_variante').filter(ativoOk_).map(function (v) {
     var comp = composicaoVigente_(db, v.id, ts);
-    return { id: v.id, nome: prods[v.produto_id].nome, tamanho: v.tamanho_ml, preco: precoVigente_(db, v.id, ts), cafeMl: v.tamanho_ml - comp.leite_ml };
+    return { id: v.id, nome: prods[v.produto_id].nome, tamanho: v.tamanho_ml, preco: precoVigente_(db, v.id, ts), cafeMl: v.tamanho_ml };
   });
-  var cafe = cafeDoDia_(db, dia), est = estadoSorteio_(db, ts), ipv = itensPorVenda_(db), formas = mapa_(db, 'forma_pagamento'), us = mapa_(db, 'usuario');
+  var cafe = cafeDoDia_(db, dia), ipv = itensPorVenda_(db), formas = mapa_(db, 'forma_pagamento'), us = mapa_(db, 'usuario'), est = null;
+  try { est = estadoSorteio_(db, ts); } catch (e) { est = null; }   // problema no sorteio não pode impedir a venda
   var ultimas = db.t('venda').filter(function (v) { return v.status === 'ATIVO' && v.dia_local === dia; }).slice(-4).reverse().map(function (v) {
     return { id: v.id, numero: v.numero, hora: hm_(v.data_hora), usuario: nomeDe_(us, v.usuario_id), forma: nomeDe_(formas, v.forma_pagamento_id), total: v.total_cafe_centavos + v.total_sorteio_centavos, texto: textoVenda_(v, ipv) };
   });
   return {
     dia: dia, fechado: diaFechado_(db, dia), saldoMl: cafe.saldo, produtos: produtos,
     formas: db.t('forma_pagamento').filter(ativoOk_).map(function (f) { return { id: f.id, nome: f.nome }; }),
-    ultimas: ultimas, sorteio: { preco: est.preco, nAtivos: est.nAtivos, meta: est.meta, rodada: est.rodadaAtual }
+    promocoes: db.t('promocao').filter(ativoOk_).map(function (x) { return { id: x.id, nome: x.nome }; }),
+    usuarios: db.t('usuario').filter(ativoOk_).map(function (u) { return { id: u.id, nome: u.nome }; }),
+    consumos: consumosDeHoje_(db, dia, us),
+    ultimas: ultimas, sorteio: est ? { preco: est.preco, nAtivos: est.nAtivos, meta: est.meta, rodada: est.rodadaAtual } : null
   };
 }
 
@@ -97,22 +112,36 @@ function clienteMascarado_(db, ctx, p) {
 /* ---------------- Preparo ---------------- */
 function viewPreparo_(db, ctx) {
   var ts = ctx.agora.dataHora, dia = ctx.agora.diaLocal, prods = mapa_(db, 'produto'), us = mapa_(db, 'usuario');
-  var receitaPor = {};
-  db.t('usuario').filter(ativoOk_).forEach(function (u) { var r = receitaVigente_(db, ts, u.id); receitaPor[u.id] = { colheres: r.colheres_por_litro, gPorColher: r.g_por_colher, filtros: r.filtros_por_litro, acucar: r.acucar_g_por_litro, agua: r.agua_ml_por_litro, propria: r.usuario_id === u.id }; });
+  var receitaPor = {}, receitas = {};
+  function fmtR3(r, u) { return { colheres: r.colheres_por_litro, gPorColher: r.g_por_colher, filtros: r.filtros_por_litro, acucar: r.acucar_g_por_litro, agua: r.agua_ml_por_litro, leite: r.leite_ml_por_litro || 0, propria: r.usuario_id === u.id }; }
+  BASES_.forEach(function (b) { receitas[b] = {}; db.t('usuario').filter(ativoOk_).forEach(function (u) { receitas[b][u.id] = fmtR3(receitaVigente_(db, ts, u.id, b), u); }); });
+  receitaPor = receitas.CAFE;   // compatível com a tela antiga: a receita do café
   var copo = {}, produtos = db.t('produto_variante').filter(ativoOk_).map(function (v) {
     var comp = composicaoVigente_(db, v.id, ts); copo[v.id] = comp.copo_material_id;
-    return { id: v.id, nome: prods[v.produto_id].nome, tamanho: v.tamanho_ml, leiteMl: comp.leite_ml, canelaG: comp.canela_g, cafeMl: v.tamanho_ml - comp.leite_ml };
+    return { id: v.id, nome: prods[v.produto_id].nome, tamanho: v.tamanho_ml, canelaG: comp.canela_g, cafeMl: v.tamanho_ml };
   });
   var plano = {}; db.t('preparo_plano').forEach(function (x) { plano[x.preparo_id] = (plano[x.preparo_id] || 0) + x.copos; });
   return {
     dia: dia, fechado: diaFechado_(db, dia),
     usuarios: db.t('usuario').filter(ativoOk_).map(function (u) { return { id: u.id, nome: u.nome }; }),
     produtos: produtos, copoPorVariante: copo, chaves: materiaisChave_(db, ts),
-    receitaPor: receitaPor,
-    materiais: db.t('material').filter(ativoOk_).map(function (m) { return { id: m.id, nome: m.nome, un: m.unidade, passo: m.passo_qtd }; }),
+    receitaPor: receitaPor, receitas: receitas,
+    materiais: db.t('material').filter(ativoOk_).map(function (m) { return { id: m.id, nome: m.nome, un: m.unidade, passo: m.passo_qtd, controla: controla_(m) }; }),
     saldos: saldosEstoque_(db),
-    hoje: db.t('preparo').filter(function (p) { return p.status === 'ATIVO' && p.dia_local === dia; }).reverse().map(function (p) { return { id: p.id, numero: p.numero, hora: hm_(p.data_hora), litros: p.litros, quem: nomeDe_(us, p.usuario_id), copos: plano[p.id] || 0 }; })
+    hoje: db.t('preparo').filter(function (p) { return p.status === 'ATIVO' && p.dia_local === dia; }).reverse().map(function (p) { return { id: p.id, numero: p.numero, hora: hm_(p.data_hora), litros: p.litros, quem: nomeDe_(us, p.usuario_id), copos: plano[p.id] || 0, pendente: pendente_(p), base: p.base || 'CAFE' }; }),
+    pendentes: pendentesDe_(db, us)
   };
+}
+
+/* preparos que ficaram sem os materiais, com o consumo que a receita da época manda (para preencher com um toque) */
+function pendentesDe_(db, us) {
+  var planoPor = {};
+  db.t('preparo_plano').forEach(function (x) { var m = planoPor[x.preparo_id] = planoPor[x.preparo_id] || {}; m[x.variante_id] = (m[x.variante_id] || 0) + x.copos; });
+  return db.t('preparo').filter(function (p) { return p.status === 'ATIVO' && pendente_(p); }).reverse().map(function (p) {
+    var plano = planoPor[p.id] || {}, consumo = {};
+    try { consumo = consumoPreparo_(db, p.data_hora, p.litros, plano, p.usuario_id, p.base || 'CAFE').consumo; } catch (e) { consumo = {}; }
+    return { id: p.id, numero: p.numero, base: p.base || 'CAFE', dia: formatarLocal_(p.data_hora, 'dd/MM'), hora: hm_(p.data_hora), litros: p.litros, quemId: p.usuario_id, quem: nomeDe_(us, p.usuario_id), plano: plano, copos: soma_(Object.keys(plano), function (k) { return plano[k]; }), consumo: consumo };
+  });
 }
 
 /* ---------------- Compra ---------------- */
@@ -138,7 +167,7 @@ function viewCompra_(db, ctx) {
     return { id: c.id, numero: c.numero, material_id: i ? i.material_id : null, embalagens: i ? i.embalagens : 1, valor: c.valor_total_centavos, fornecedor_id: c.fornecedor_id, texto: nb_((m ? m.nome + ' ' + fmtN_(i.qtd_base_qtd) + ' ' + m.unidade : 'Compra') + ' \u00B7 ' + fmtR_(c.valor_total_centavos) + ' \u00B7 ' + nomeDe_(forn, c.fornecedor_id)), meta: '#' + c.numero + ' \u00B7 ' + dm_(c.data_hora) + ' \u00B7 ' + nomeDe_(us, c.usuario_id) };
   });
   return {
-    materiais: db.t('material').filter(ativoOk_).map(function (m) { return { id: m.id, nome: m.nome, un: m.unidade, pacote: m.pacote_qtd, precoPadrao: m.preco_padrao_centavos }; }),
+    materiais: db.t('material').filter(function (m) { return m.ativo && controla_(m); }).map(function (m) { return { id: m.id, nome: m.nome, un: m.unidade, pacote: m.pacote_qtd, precoPadrao: m.preco_padrao_centavos }; }),
     fornecedores: db.t('fornecedor').filter(ativoOk_).map(function (f) { return { id: f.id, nome: f.nome }; }),
     hist: histMateriais_(db), recentes: recentes
   };
@@ -152,9 +181,9 @@ function viewFechamento_(db, ctx) {
     return { id: a.id, texto: a.tipo === 'PERDA' ? nb_(fmtN_(-a.ml_cafe) + ' ml \u00B7 ' + nomeDe_(mot, a.motivo_id)) : nb_('Ajuste +' + fmtN_(a.ml_cafe) + ' ml \u00B7 preparo n\u00E3o lan\u00E7ado'), meta: hm_(a.data_hora) + ' \u00B7 ' + nomeDe_(us, a.usuario_id) };
   });
   return {
-    dia: dia, fechado: diaFechado_(db, dia), produzidoMl: cafe.produzido, vendidoMl: cafe.vendido, perdidoMl: cafe.perdido, diff: cafe.saldo,
+    dia: dia, fechado: diaFechado_(db, dia), produzidoMl: cafe.produzido, vendidoMl: cafe.vendido, perdidoMl: cafe.perdido, consumidoMl: cafe.consumido, diff: cafe.saldo,
     copos: soma_(vd, function (v) { return v.copos; }), reais: soma_(vd, function (v) { return v.total_cafe_centavos; }),
-    motivos: db.t('motivo_perda').filter(ativoOk_).map(function (m) { return { id: m.id, nome: m.nome }; }), ajustes: ajustes
+    motivos: db.t('motivo_perda').filter(ativoOk_).map(function (m) { return { id: m.id, nome: m.nome }; }), ajustes: ajustes, pendMateriais: contarPendentes_(db)
   };
 }
 
@@ -163,26 +192,26 @@ function viewEstoque_(db, ctx, sub) {
   var sal = saldosEstoque_(db), us = db.t('usuario').filter(ativoOk_), mats = mapa_(db, 'material');
   var usuarios = us.map(function (u) { return { id: u.id, nome: u.nome }; });
   if (sub === 'saldos') {
-    return { sub: sub, usuarios: usuarios, linhas: db.t('material').filter(ativoOk_).map(function (m) {
+    return { sub: sub, usuarios: usuarios, linhas: db.t('material').filter(function (m) { return m.ativo && controla_(m); }).map(function (m) {
       var por = {}, tot = 0; us.forEach(function (u) { var q = qtdEstoque_(sal, u.id, m.id); por[u.id] = q; tot += q; });
       return { id: m.id, nome: m.nome, un: m.unidade, min: m.estoque_minimo_qtd, passo: m.passo_qtd, por: por, total: r3_(tot) };
     }) };
   }
   if (sub === 'movs') {
-    var ov = origensValidas_(db), un = mapa_(db, 'usuario'), cab = { compra: mapa_(db, 'compra'), preparo: mapa_(db, 'preparo'), ajuste_estoque: mapa_(db, 'ajuste_estoque') };
+    var ov = origensValidas_(db, ORIGENS_ESTOQUE_), un = mapa_(db, 'usuario'), cab = { compra: mapa_(db, 'compra'), preparo: mapa_(db, 'preparo'), ajuste_estoque: mapa_(db, 'ajuste_estoque') };
     var movs = db.t('movimento_estoque').filter(function (m) { return movValido_(ov, m); }).slice(-30).reverse().map(function (m) {
       var h = cab[m.origem_tabela] && cab[m.origem_tabela][m.origem_id];
       return { texto: nomeDe_(mats, m.material_id) + ' \u00B7 ' + nomeDe_(un, m.usuario_id), tipo: m.tipo, meta: dm_(m.data_hora), qtd: m.qtd, un: mats[m.material_id].unidade, tabela: m.origem_tabela, origem: m.origem_id, desfazer: !m.estorno_de_id && !!h && h.status === 'ATIVO' };
     });
     return { sub: sub, movs: movs };
   }
-  return { sub: sub, usuarios: usuarios, saldos: sal, materiais: db.t('material').filter(ativoOk_).map(function (m) { return { id: m.id, nome: m.nome, un: m.unidade, passo: m.passo_qtd }; }) };
+  return { sub: sub, usuarios: usuarios, saldos: sal, materiais: db.t('material').filter(function (m) { return m.ativo && controla_(m); }).map(function (m) { return { id: m.id, nome: m.nome, un: m.unidade, passo: m.passo_qtd }; }) };
 }
 
 /* ---------------- agregados para painéis e financeiro ---------------- */
 /* desde: 'AAAA-MM-DD' (só dali em diante) ou null (tudo). Investido e reembolsado são sempre o acumulado. */
 function agregados_(db, ts, desde) {
-  var A = { fat: 0, fatSort: 0, copos: 0, nVendas: 0, vendMl: 0, porProd: {}, porPag: {}, porHora: {}, litros: 0, nPrep: 0, gCafe: 0, prodMl: 0, custoAt: 0, custoPad: 0, gasto: 0, nCompras: 0, porLocal: {}, despesas: 0, perdaMot: {}, pess: {}, litrosPess: {}, histCafe: [] };
+  var A = { litrosBase: { CAFE: 0, CAFE_LEITE: 0 }, fat: 0, fatSort: 0, copos: 0, nVendas: 0, vendMl: 0, porProd: {}, porPag: {}, porHora: {}, porTam: {}, desc: 0, nDesc: 0, mlServido: 0, consumoMl: 0, consumoCopos: 0, litros: 0, nPrep: 0, nPrepPend: 0, prodMlLanc: 0, gCafe: 0, prodMl: 0, custoAt: 0, custoPad: 0, gasto: 0, nCompras: 0, porLocal: {}, despesas: 0, perdaMot: {}, pess: {}, litrosPess: {}, histCafe: [] };
   var us = db.t('usuario').filter(ativoOk_), formas = mapa_(db, 'forma_pagamento'), forn = mapa_(db, 'fornecedor'), mot = mapa_(db, 'motivo_perda'), vars = mapa_(db, 'produto_variante');
   function dentro(dia) { return !desde || dia >= desde; }
   us.forEach(function (u) { A.pess[u.id] = { ml: 0, invest: 0, reemb: 0 }; A.litrosPess[u.id] = 0; });
@@ -191,16 +220,18 @@ function agregados_(db, ts, desde) {
   var vendasAt = {};
   db.t('venda').forEach(function (v) {
     if (v.status !== 'ATIVO' || !dentro(v.dia_local)) return;
-    vendasAt[v.id] = true; A.nVendas++; A.fat += v.total_cafe_centavos; A.fatSort += v.total_sorteio_centavos; A.copos += v.copos; A.vendMl += v.ml_cafe;
+    vendasAt[v.id] = true; A.nVendas++; A.desc += v.desconto_centavos || 0; if (v.desconto_centavos > 0) A.nDesc++; A.fat += v.total_cafe_centavos; A.fatSort += v.total_sorteio_centavos; A.copos += v.copos; A.vendMl += v.ml_cafe;
     add(A.porPag, nomeDe_(formas, v.forma_pagamento_id), v.total_cafe_centavos + v.total_sorteio_centavos);
     add(A.porHora, formatarLocal_(v.data_hora, 'HH'), 1);
   });
-  db.t('venda_item').forEach(function (i) { if (vendasAt[i.venda_id]) add(A.porProd, i.variante_id, i.qtd); });
+  db.t('venda_item').forEach(function (i) { if (!vendasAt[i.venda_id]) return; var tam = i.tamanho_ml != null ? i.tamanho_ml : ((vars[i.variante_id] || {}).tamanho_ml || 0); add(A.porProd, i.variante_id + '|' + tam, i.qtd); add(A.porTam, tam, i.qtd); A.mlServido += i.qtd * tam; });
   var prepAt = {};
   db.t('preparo').forEach(function (p) {
     if (p.status !== 'ATIVO' || !dentro(p.dia_local)) return;
     prepAt[p.id] = true; A.nPrep++; A.litros += p.litros; A.prodMl += p.litros * 1000;
+    if (pendente_(p)) A.nPrepPend++; else A.prodMlLanc += p.litros * 1000;
     if (A.pess[p.usuario_id]) { A.pess[p.usuario_id].ml += p.litros * 1000; A.litrosPess[p.usuario_id] += p.litros; }
+    A.litrosBase[p.base === 'CAFE_LEITE' ? 'CAFE_LEITE' : 'CAFE'] += p.litros;
   });
   db.t('preparo_consumo').forEach(function (c) { if (!prepAt[c.preparo_id]) return; A.custoAt += c.custo_atual_centavos; A.custoPad += c.custo_padrao_centavos; if (c.material_id === chave.cafe) A.gCafe += c.qtd_real_qtd; });
   var compAt = mapa_(db, 'compra');
@@ -210,6 +241,7 @@ function agregados_(db, ts, desde) {
     if (!dentro(c.dia_local)) return;
     A.nCompras++; A.gasto += c.valor_total_centavos; add(A.porLocal, nomeDe_(forn, c.fornecedor_id), c.valor_total_centavos);
   });
+  db.t('consumo_proprio').forEach(function (c) { if (c.status === 'ATIVO' && dentro(c.dia_local)) { A.consumoMl += c.ml_cafe; A.consumoCopos += c.copos; } });
   db.t('ajuste_cafe').forEach(function (a) { if (a.status === 'ATIVO' && a.tipo === 'PERDA' && dentro(a.dia_local)) add(A.perdaMot, nomeDe_(mot, a.motivo_id), -a.ml_cafe); });
   db.t('lancamento_financeiro').forEach(function (l) {
     if (l.status !== 'ATIVO' || !A.pess[l.usuario_id]) return;
@@ -238,6 +270,15 @@ function desdeDoPeriodo_(dia, periodo) {
   if (periodo === '7d') { var d = new Date(dia + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 6); return d.toISOString().slice(0, 10); }
   return null;
 }
+/* uma barra por produto e tamanho do copo: os atuais (mesmo sem venda) e os que só existem no histórico */
+function produtosETamanhos_(db, A, vars, prods) {
+  var itens = [], visto = {};
+  function nome(vid, tam) { var v = db.achar('produto_variante', vid); return prods[v.produto_id].nome.replace('Café ', '') + ' ' + tam + ' ml'; }
+  vars.forEach(function (v) { var k = v.id + '|' + v.tamanho_ml; visto[k] = true; itens.push({ lbl: nome(v.id, v.tamanho_ml), n: A.porProd[k] || 0 }); });
+  Object.keys(A.porProd).forEach(function (k) { if (visto[k]) return; var p = k.split('|'); itens.push({ lbl: nome(p[0], p[1]), n: A.porProd[k] }); });
+  return itens;
+}
+
 function viewPaineis_(db, ctx, sub, periodo) {
   var ts = ctx.agora.dataHora, desde = desdeDoPeriodo_(ctx.agora.diaLocal, periodo), A = agregados_(db, ts, desde), est = estadoSorteio_(db, ts), prods = mapa_(db, 'produto');
   var vars = db.t('produto_variante').filter(ativoOk_), us = A.us;
@@ -246,15 +287,15 @@ function viewPaineis_(db, ctx, sub, periodo) {
   var cu = null;
   if (sub === 'geral') {
     P = { tiles: [T('Faturamento dos cafés', fmtR_(A.fat)), T('Resultado', fmtR_(A.resultado)), T('Copos vendidos', String(A.copos)), T('Litros preparados', fmtN_(A.litros) + ' L')],
-      t1: 'Mais vendidos', b1: barras_(vars.map(function (v) { return { lbl: prods[v.produto_id].nome.replace('Café ', '') + ' ' + v.tamanho_ml + ' ml', n: A.porProd[v.id] || 0 }; }), nCopos_),
+      t1: 'Mais vendidos', b1: barras_(produtosETamanhos_(db, A, vars, prods), nCopos_),
       t2: 'Faturamento por forma de pagamento', b2: barras_(Object.keys(A.porPag).map(function (k) { return { lbl: k, n: A.porPag[k] }; }), fmtR_) };
   } else if (sub === 'vendas') {
     var horas = Object.keys(A.porHora).sort();
-    P = { tiles: [T('Vendas', String(A.nVendas)), T('Ticket médio', fmtR_(A.nVendas ? A.fat / A.nVendas : 0)), T('Copos', String(A.copos)), T('Café vendido', fmtN_(A.vendMl) + ' ml')],
+    P = { tiles: [T('Vendas', String(A.nVendas)), T('Ticket médio', fmtR_(A.nVendas ? A.fat / A.nVendas : 0)), T('Copos', String(A.copos)), T('Café vendido', fmtN_(A.vendMl) + ' ml'), T('Descontos dados', fmtR_(A.desc) + (A.nDesc ? ' \u00B7 ' + A.nDesc + (A.nDesc === 1 ? ' venda' : ' vendas') : ''))],
       t1: 'Vendas por horário', b1: barras_(horas.map(function (h) { return { lbl: h + 'h', n: A.porHora[h] }; }), function (n) { return n + (n === 1 ? ' venda' : ' vendas'); }),
-      t2: 'Copos por tamanho', b2: barras_([50, 100].map(function (ml) { return { lbl: ml + ' ml', n: vars.filter(function (v) { return v.tamanho_ml === ml; }).reduce(function (a, v) { return a + (A.porProd[v.id] || 0); }, 0) }; }), nCopos_) };
+      t2: 'Copos por tamanho', b2: barras_(Object.keys(A.porTam).map(Number).concat(vars.map(function (v) { return v.tamanho_ml; }).filter(function (t, i, l) { return !A.porTam[t] && l.indexOf(t) === i; })).sort(function (a, b) { return a - b; }).map(function (ml) { return { lbl: ml + ' ml', n: A.porTam[ml] || 0 }; }), nCopos_) };
   } else if (sub === 'estoque') {
-    var sal = saldosEstoque_(db), mats = db.t('material').filter(ativoOk_), cafeId = materiaisChave_(db, ts).cafe;
+    var sal = saldosEstoque_(db), mats = db.t('material').filter(function (m) { return m.ativo && controla_(m); }), cafeId = materiaisChave_(db, ts).cafe;
     function totalMat(m) { return soma_(us, function (u) { return qtdEstoque_(sal, u.id, m.id); }); }
     var abaixo = mats.filter(function (m) { return totalMat(m) < m.estoque_minimo_qtd; }).length;
     P = { tiles: [T('Abaixo do mínimo', String(abaixo)), T('Materiais ativos', String(mats.length))].concat(us.slice(0, 2).map(function (u) { return T('Café \u2014 ' + u.nome, fmtN_(qtdEstoque_(sal, u.id, cafeId)) + ' g'); })),
@@ -266,9 +307,9 @@ function viewPaineis_(db, ctx, sub, periodo) {
       t1: 'Gasto por local', b1: barras_(Object.keys(A.porLocal).map(function (k) { return { lbl: k, n: A.porLocal[k] }; }), fmtR_),
       t2: 'Café: preço do pacote de 500 g em cada compra', b2: barras_(A.histCafe.map(function (h) { return { lbl: h.dia + ' \u00B7 ' + h.forn, n: h.pacote }; }), fmtR_) };
   } else if (sub === 'producao') {
-    P = { tiles: [T('Litros preparados', fmtN_(A.litros) + ' L'), T('Preparos', String(A.nPrep)), T('Café em pó usado', fmtN_(A.gCafe) + ' g'), T('Rendimento', A.gCafe ? fmtN_(A.prodMl / A.gCafe) + ' ml/g' : '\u2014')],
-      t1: 'Litros por pessoa', b1: barras_(us.map(function (u) { return { lbl: u.nome, n: A.litrosPess[u.id] }; }), function (n) { return fmtN_(n) + ' L'; }),
-      t2: 'Perdas de café por motivo', b2: barras_(Object.keys(A.perdaMot).map(function (k) { return { lbl: k, n: A.perdaMot[k] }; }), function (n) { return fmtN_(n) + ' ml'; }) };
+    P = { tiles: [T('Litros preparados', fmtN_(A.litros) + ' L'), T('Preparos', A.nPrep + (A.nPrepPend ? ' \u00B7 ' + A.nPrepPend + ' sem materiais' : '')), T('Café em pó usado', fmtN_(A.gCafe) + ' g'), T('Rendimento', A.gCafe ? fmtN_(A.prodMlLanc / A.gCafe) + ' ml/g' : '\u2014')],
+      t1: 'Litros por pessoa e tipo', b1: barras_(us.map(function (u) { return { lbl: u.nome, n: A.litrosPess[u.id] }; }).concat([{ lbl: 'Café', n: A.litrosBase.CAFE }, { lbl: 'Café com leite', n: A.litrosBase.CAFE_LEITE }]), function (n) { return fmtN_(n) + ' L'; }),
+      t2: 'Perdas e consumo próprio de café', b2: barras_(Object.keys(A.perdaMot).map(function (k) { return { lbl: k, n: A.perdaMot[k] }; }).concat(A.consumoMl > 0 ? [{ lbl: 'Consumo nosso (registrado na Venda)', n: A.consumoMl }] : []), function (n) { return fmtN_(n) + ' ml'; }) };
   } else if (sub === 'fin') {
     var invT = soma_(us, function (u) { return A.pess[u.id].invest; }), reT = soma_(us, function (u) { return A.pess[u.id].reemb; });
     var pc = function (i, r) { return i ? Math.round(r / i * 100) : 0; };
@@ -292,7 +333,7 @@ function viewCadastros_(db, ctx, sub) {
   var ts = ctx.agora.dataHora, prods = mapa_(db, 'produto');
   if (sub === 'materiais') {
     var cu = custosUnitarios_(db);
-    return { sub: sub, materiais: db.t('material').map(function (m) { return { id: m.id, nome: m.nome, un: m.unidade, min: m.estoque_minimo_qtd, pacote: m.pacote_qtd, preco: m.preco_padrao_centavos, passo: m.passo_qtd, ativo: m.ativo, custoPadrao: cu[m.id].padrao }; }) };
+    return { sub: sub, materiais: db.t('material').map(function (m) { return { id: m.id, nome: m.nome, un: m.unidade, min: m.estoque_minimo_qtd, pacote: m.pacote_qtd, preco: m.preco_padrao_centavos, passo: m.passo_qtd, ativo: m.ativo, controla: controla_(m), custoPadrao: cu[m.id].padrao }; }) };
   }
   if (sub === 'produtos') {
     var vars = db.t('produto_variante'), us = mapa_(db, 'usuario'), varMap = mapa_(db, 'produto_variante');
@@ -306,10 +347,11 @@ function viewCadastros_(db, ctx, sub) {
     return { sub: sub, produtos: vars.map(function (v) { return { id: v.id, nome: prods[v.produto_id].nome, tamanho: v.tamanho_ml, preco: precoVigente_(db, v.id, ts), ativo: v.ativo }; }), historico: hist.slice(0, 12).map(function (h) { return h.txt; }) };
   }
   if (sub === 'receitas') {
-    function fmtRec(r) { return { colheres: r.colheres_por_litro, gPorColher: r.g_por_colher, filtros: r.filtros_por_litro, acucar: r.acucar_g_por_litro, agua: r.agua_ml_por_litro }; }
-    var escopos = [{ id: '', nome: 'Padrão da casa', propria: true, receita: fmtRec(receitaVigente_(db, ts, null)) }].concat(db.t('usuario').filter(ativoOk_).map(function (u) { var r = receitaVigente_(db, ts, u.id); return { id: u.id, nome: u.nome, propria: r.usuario_id === u.id, receita: fmtRec(r) }; }));
+    function fmtRec(r) { return { colheres: r.colheres_por_litro, gPorColher: r.g_por_colher, filtros: r.filtros_por_litro, acucar: r.acucar_g_por_litro, agua: r.agua_ml_por_litro, leite: r.leite_ml_por_litro || 0 }; }
+    var escopos = [{ id: '', nome: 'Padrão da casa', propria: true, propriaLeite: true, receita: fmtRec(receitaVigente_(db, ts, null, 'CAFE')), receitaLeite: fmtRec(receitaVigente_(db, ts, null, 'CAFE_LEITE')) }].concat(db.t('usuario').filter(ativoOk_).map(function (u) { var r = receitaVigente_(db, ts, u.id, 'CAFE'), rl = receitaVigente_(db, ts, u.id, 'CAFE_LEITE'); return { id: u.id, nome: u.nome, propria: r.usuario_id === u.id, propriaLeite: rl.usuario_id === u.id, receita: fmtRec(r), receitaLeite: fmtRec(rl) }; }));
     return { sub: sub, escopos: escopos,
-      composicao: db.t('produto_variante').filter(ativoOk_).map(function (v) { var c = composicaoVigente_(db, v.id, ts); return { id: v.id, nome: prods[v.produto_id].nome, tamanho: v.tamanho_ml, leiteMl: c.leite_ml, canelaG: c.canela_g, cafeMl: v.tamanho_ml - c.leite_ml }; }) };
+      copos: db.t('material').filter(function (m) { return m.ativo && m.unidade === 'un'; }).map(function (m) { return { id: m.id, nome: m.nome }; }),
+      composicao: db.t('produto_variante').filter(ativoOk_).map(function (v) { var c = composicaoVigente_(db, v.id, ts); return { id: v.id, nome: prods[v.produto_id].nome, tamanho: v.tamanho_ml, canelaG: c.canela_g, cafeMl: v.tamanho_ml, copoId: c.copo_material_id }; }) };
   }
   if (sub === 'listas') {
     return { sub: sub, listas: [['fornecedor', 'Locais de compra'], ['forma_pagamento', 'Formas de pagamento'], ['motivo_perda', 'Motivos de perda de café']].map(function (x) {
@@ -380,7 +422,7 @@ function viewHistorico_(db, ctx) {
     linhas.push({ tabela: tabela, id: r.id, numero: r.numero || r.rodada, quando: r.data_hora, tipo: tipo, resumo: nb_(resumo), meta: dm_(r.data_hora) + ' \u00B7 ' + nomeDe_(us, r.usuario_id || r.criado_por), status: r.status, estornadoPor: e ? nomeDe_(us, e.usuario_id) : null, estornadoEm: e ? dm_(e.data_hora) : null });
   }
   db.t('venda').forEach(function (v) { push('venda', v, 'VENDA', textoVenda_(v, ipv) + ' \u00B7 ' + fmtR_(v.total_cafe_centavos + v.total_sorteio_centavos) + ' \u00B7 ' + nomeDe_(formas, v.forma_pagamento_id)); });
-  db.t('preparo').forEach(function (p) { push('preparo', p, 'PREPARO', fmtN_(p.litros) + ' L preparados por ' + nomeDe_(us, p.usuario_id)); });
+  db.t('preparo').forEach(function (p) { push('preparo', p, 'PREPARO', fmtN_(p.litros) + ' L de ' + (p.base === 'CAFE_LEITE' ? 'café com leite' : 'café') + ' preparados por ' + nomeDe_(us, p.usuario_id)); });
   db.t('compra').forEach(function (c) { var i = ci[c.id], m = i ? mats[i.material_id] : null; push('compra', c, 'COMPRA', (m ? m.nome + ' ' + fmtN_(i.qtd_base_qtd) + ' ' + m.unidade : 'Compra') + ' \u00B7 ' + fmtR_(c.valor_total_centavos) + ' \u00B7 ' + nomeDe_(forn, c.fornecedor_id)); });
   db.t('ajuste_cafe').forEach(function (a) { push('ajuste_cafe', a, a.tipo === 'PERDA' ? 'PERDA DE CAFÉ' : 'AJUSTE DE CAFÉ', a.tipo === 'PERDA' ? fmtN_(-a.ml_cafe) + ' ml \u00B7 ' + nomeDe_(mot, a.motivo_id) : '+' + fmtN_(a.ml_cafe) + ' ml de café \u00B7 preparo não lançado'); });
   db.t('ajuste_estoque').forEach(function (a) {
@@ -388,6 +430,7 @@ function viewHistorico_(db, ctx) {
     push('ajuste_estoque', a, 'ESTOQUE', a.tipo === 'AJUSTE' ? 'Ajuste ' + (a.qtd > 0 ? '+' : '\u2212') + q + ' (' + nomeDe_(us, a.usuario_id) + ')' : a.tipo === 'PERDA' ? 'Perda de ' + q + ' (' + nomeDe_(us, a.usuario_id) + ')' : 'Transferência de ' + q + ': ' + nomeDe_(us, a.usuario_id) + ' \u2192 ' + nomeDe_(us, a.usuario_destino_id));
   });
   db.t('lancamento_financeiro').forEach(function (l) { push('lancamento_financeiro', l, 'FINANCEIRO', { REEMBOLSO: 'Reembolso', APORTE: 'Aporte', DESPESA: 'Despesa' }[l.tipo] + ' ' + fmtR_(l.valor_centavos) + ' \u00B7 ' + nomeDe_(us, l.usuario_id)); });
+  db.t('consumo_proprio').forEach(function (c) { push('consumo_proprio', c, 'CONSUMO PRÓPRIO', c.copos + (c.copos === 1 ? ' copo' : ' copos') + ' tomado por ' + nomeDe_(us, c.consumidor_id) + ' \u00B7 ' + fmtN_(c.ml_cafe) + ' ml de café'); });
   db.t('sorteio').forEach(function (s) { if (s.status !== 'ENCERRADO') return; linhas.push({ tabela: 'sorteio', id: s.id, numero: s.rodada, quando: s.encerrado_em, tipo: 'NOVO SORTEIO', resumo: nb_('Sorteio nº ' + s.rodada + ' encerrado \u00B7 ' + s.qtd_numeros + (s.qtd_numeros === 1 ? ' número' : ' números')), meta: dm_(s.encerrado_em) + ' \u00B7 ' + nomeDe_(us, s.encerrado_por), status: 'ENCERRADO', estornadoPor: null, estornadoEm: null }); });
   linhas.sort(function (a, b) { return a.quando < b.quando ? 1 : a.quando > b.quando ? -1 : 0; });
   return { linhas: linhas.slice(0, 40) };

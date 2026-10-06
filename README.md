@@ -249,7 +249,7 @@ Desfazer cria uma linha em `estorno`, muda o status do registro para `ESTORNADO`
 
 **Preparo rápido e materiais pendentes.** Registrar produção pede só litros e quem preparou: o café já entra para vender e o preparo fica com `materiais_status = PENDENTE`. O sistema *cobra* (bolinha no menu, aviso no fechamento), mas não trava. Depois, um toque lança os materiais pela **receita da época do preparo**, e só então o estoque e o custo andam.
 
-**Receita por pessoa.** Existe a receita da casa e, opcionalmente, a de cada pessoa (eu uso filtro de pano e coloco açúcar; o Digo usa filtro de papel). Quem prepara usa a própria se tiver; senão, a da casa. O preparo guarda o que a receita mandava (`qtd_padrao`) e o que foi usado (`qtd_real`).
+**Receita por pessoa e por tipo de café.** Para mim, "café" é o produto: pó + água, ou pó + água + leite no caso do café com leite. Por isso cada pessoa tem duas receitas por litro, a do **café** e a do **café com leite** (por exemplo, 600 ml de água + 400 ml de leite), e ao registrar um preparo eu digo o que foi preparado. Quem prepara usa a própria receita do tipo escolhido, se tiver; senão, a da casa. O preparo guarda o tipo, o que a receita mandava (`qtd_padrao`) e o que foi usado (`qtd_real`).
 
 **Material sem controle de estoque.** A água, por exemplo, tem `controla_estoque = FALSO`: o consumo é registrado, mas ela não aparece em Estoque nem em Compra e nunca trava nada.
 
@@ -259,7 +259,7 @@ Desfazer cria uma linha em `estorno`, muda o status do registro para `ESTORNADO`
 
 **Consumo próprio.** O café que eu e o Digo tomamos é registrado na hora, na própria Venda. Sai do café pronto, mas **não é venda**: não conta em faturamento, ticket médio nem sorteio.
 
-**Volume servido x café.** Cada item guarda o tamanho do copo da época. Um café com leite de 50 ml leva 30 ml de café e 20 ml de leite, então o "volume servido" e o "café" são medidas diferentes. O estoque e o café pronto sempre usam o café.
+**O copo só tem café.** O leite do café com leite entra no **preparo**, nunca no copo: um copo de 100 ml é 100 ml do produto, e o consumo de leite sai da receita do preparo. O tamanho do copo é editável (Cadastros › Produtos e preços): mudar vale daqui para frente, e cada venda guarda o tamanho da época. O café pronto e o estoque usam sempre esse volume.
 
 ---
 
@@ -308,7 +308,7 @@ O simulador reproduz detalhes que costumam esconder bugs no Planilhas real: text
 
 ## Qualidade
 
-- **510 verificações automáticas** das regras: venda, preparo, compra, estoque, fechamento, estorno, sorteio, desconto, consumo, painéis, auditoria, DDL e migração de planilhas já instaladas.
+- **551 verificações automáticas** das regras: venda, preparo, compra, estoque, fechamento, estorno, sorteio, desconto, consumo, painéis, auditoria, DDL e migração de planilhas já instaladas.
 - **Painéis conferidos contra os registros:** os testes recalculam cada número de cada painel direto das linhas e comparam com a tela.
 - **Teste diferencial do cache:** depois de cada uma de mais de vinte operações, todas as telas lidas com cache são comparadas com as lidas direto da planilha e precisam ser idênticas. Cache sumindo, corrompido ou falhando também não pode mudar resultado.
 - **Orçamento de chamadas:** os testes falham se uma gravação passar de 8 chamadas à planilha ou se abrir uma tela já vista tocar na planilha.
@@ -334,12 +334,13 @@ O simulador reproduz detalhes que costumam esconder bugs no Planilhas real: text
 
 **Próximos passos**
 
+- [ ] Separar o saldo de café pronto em café e café com leite (hoje é um só)
 - [ ] Carga para o MySQL e camada `Banco` sobre ele
 - [ ] Fila offline no aparelho (hoje, sem internet, a ação falha com aviso e pode ser repetida sem duplicar)
 - [ ] Comparar períodos de promoção (antes, durante e depois) com os dados que o desconto manual já registra
 - [ ] Versionar a automação de navegador no repositório
 
-**Limites conhecidos:** a maior parte da verificação foi feita em simulador e em navegador contra um servidor local; o Google real está sendo validado aos poucos, e o desempenho no Apps Script depende do volume e do horário. Tabelas muito grandes ocupam vários pedaços de cache e, com meses de uso, convém arquivar movimentos antigos.
+**Limites conhecidos:** o café pronto é um saldo único (café e café com leite somam no mesmo saldo), e separar os dois é um próximo passo. Além disso, a maior parte da verificação foi feita em simulador e em navegador contra um servidor local; o Google real está sendo validado aos poucos, e o desempenho no Apps Script depende do volume e do horário. Tabelas muito grandes ocupam vários pedaços de cache e, com meses de uso, convém arquivar movimentos antigos.
 
 ---
 

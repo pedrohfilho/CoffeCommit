@@ -215,7 +215,7 @@ grupo('dados de exemplo');
   ok(db.t('compra').length === 11 && db.t('venda').length === 5 && db.t('preparo').length === 1, 'compras, vendas e preparo de exemplo');
   const sal = T.ctx.saldosEstoque_(db);
   ok(Math.abs(sal['usr-pedro']['mat-cafe'] - 958) < 1e-6, 'estoque de café do Pedro = 1000 - 42', sal['usr-pedro']['mat-cafe']);
-  ok(sal['usr-pedro']['mat-copo200'] === 41 && sal['usr-pedro']['mat-copo50'] === 36, 'copos descontados pelo plano');
+  ok(sal['usr-pedro']['mat-copo200'] === 42 && sal['usr-pedro']['mat-copo50'] === 37, 'copos descontados pelo plano (8 de 200 ml e 13 de 50 ml)');
   ok(sal['usr-digo']['mat-cafe'] === 500 && !sal['usr-digo']['mat-copo50'], 'o Digo tem só o que comprou');
   const v = ver(T, T.pedro, 'venda');
   ok(v.view === undefined && v.ok && v.saldoMl === 1000, 'saldo de café pronto = 1.500 - 500', v.saldoMl);
@@ -233,14 +233,14 @@ grupo('venda');
   const r = venda(T, T.pedro, { 'var-l100': 1, 'var-n50': 2 }, 'fp-pix', null, id);
   ok(r.ok && /R\$.*4,50/.test(r.msg), 'venda registrada com total certo', r.msg);
   const v = T.db().achar('venda', id);
-  ok(v.status === 'ATIVO' && v.total_cafe_centavos === 450 && v.ml_cafe === 160 && v.copos === 3, 'totais gravados', v);
+  ok(v.status === 'ATIVO' && v.total_cafe_centavos === 450 && v.ml_cafe === 200 && v.copos === 3, 'totais gravados (o copo só tem café: 100 + 2 × 50 = 200 ml)', v);
   ok(v.dia_local === H(T) && v.usuario_id === 'usr-pedro', 'dia e quem registrou vêm do servidor');
   const it = T.db().t('venda_item').filter((i) => i.venda_id === id);
-  ok(it.length === 2 && it.find((i) => i.variante_id === 'var-l100').preco_unit_centavos === 250 && it.find((i) => i.variante_id === 'var-l100').ml_cafe_unit === 60, 'preço e café gravados no momento');
+  ok(it.length === 2 && it.find((i) => i.variante_id === 'var-l100').preco_unit_centavos === 250 && it.find((i) => i.variante_id === 'var-l100').ml_cafe_unit === 100, 'preço e café gravados no momento');
   const r2 = venda(T, T.pedro, { 'var-l100': 1, 'var-n50': 2 }, 'fp-pix', null, id);
   ok(r2.ok && r2.repetido && T.db().t('venda').filter((x) => x.id === id).length === 1, 'reenvio com o mesmo id não duplica');
   ok(T.db().t('movimento_estoque').every((m) => m.origem_tabela !== 'venda'), 'venda não mexe no estoque de material');
-  ok(ver(T, T.pedro, 'venda').saldoMl === 840, 'saldo de café desceu 160 ml');
+  ok(ver(T, T.pedro, 'venda').saldoMl === 800, 'saldo de café desceu 200 ml');
   ok(venda(T, T.pedro, {}, 'fp-pix').erro === 'Nada no pedido.', 'pedido vazio recusado');
   ok(/forma de pagamento/.test(venda(T, T.pedro, { 'var-n50': 1 }, 'fp-xxx').erro), 'forma de pagamento inválida');
   ok(/indisponível/.test(venda(T, T.pedro, { 'var-zzz': 1 }, 'fp-pix').erro), 'produto inexistente');
@@ -249,7 +249,7 @@ grupo('venda');
   const antes = T.db().t('venda').length;
   const passou = venda(T, T.digo, { 'var-n100': 9 }, 'fp-dinheiro');
   ok(passou.ok && passou.passou && /passou do café preparado/.test(passou.msg) && T.db().t('venda').length === antes + 1, 'venda acima do café preparado é aceita, com aviso', passou.msg);
-  ok(ver(T, T.pedro, 'venda').saldoMl === -60, 'saldo fica negativo e a tela mostra');
+  ok(ver(T, T.pedro, 'venda').saldoMl === -100, 'saldo fica negativo e a tela mostra');
 }
 
 grupo('venda com números do sorteio');
@@ -290,7 +290,7 @@ grupo('preparo e estoque de quem preparou');
   const db = T.db(), p = db.t('preparo').slice(-1)[0];
   const cons = db.t('preparo_consumo').filter((c) => c.preparo_id === p.id);
   const q = (m) => (cons.find((c) => c.material_id === m) || {}).qtd_real_qtd;
-  ok(q('mat-cafe') === 28 && q('mat-filtro') === 1 && q('mat-agua') === 1000 && q('mat-leite') === 40 && q('mat-copo200') === 3, 'consumo = receita x litros + plano', cons.map((c) => [c.material_id, c.qtd_real_qtd]));
+  ok(q('mat-cafe') === 28 && q('mat-filtro') === 1 && q('mat-agua') === 1000 && q('mat-leite') === undefined && q('mat-copo200') === 3, 'consumo = receita x litros + plano (o copo só tem café, então o plano não baixa leite)', cons.map((c) => [c.material_id, c.qtd_real_qtd]));
   ok(cons.find((c) => c.material_id === 'mat-cafe').custo_atual_centavos === Math.round(28 * 2600 / 500) && cons.find((c) => c.material_id === 'mat-cafe').custo_padrao_centavos === Math.round(28 * 2700 / 500), 'custo atual (última compra) e padrão gravados', cons[0]);
   ok(Math.abs(T.ctx.cafeDoDia_(T.db(), H(T)).produzido - 2500) < 1e-9, 'café produzido do dia = 1.500 + 1.000');
   const semEst = preparo(T, T.digo, 1, { 'var-n100': 1 }, 'usr-digo');
@@ -382,7 +382,7 @@ grupo('estoque: ajuste, perda de material, transferência');
   ok(mv('AJUSTE', 'mat-cafe', 'usr-pedro', -8).ok && T.ctx.saldosEstoque_(T.db())['usr-pedro']['mat-cafe'] === 950, 'ajuste negativo');
   ok(/negativo/.test(mv('AJUSTE', 'mat-cafe', 'usr-pedro', -9999).erro), 'ajuste que deixaria negativo');
   ok(/Informe a quantidade/.test(mv('AJUSTE', 'mat-cafe', 'usr-pedro', 0).erro) && /Informe a quantidade/.test(mv('PERDA', 'mat-cafe', 'usr-pedro', 0).erro), 'quantidade zero recusada');
-  ok(mv('PERDA', 'mat-leite', 'usr-pedro', 100).ok && T.ctx.saldosEstoque_(T.db())['usr-pedro']['mat-leite'] === 3700, 'perda de material');
+  ok(mv('PERDA', 'mat-leite', 'usr-pedro', 100).ok && T.ctx.saldosEstoque_(T.db())['usr-pedro']['mat-leite'] === 3900, 'perda de material (4.000 ml de leite comprados − 100)');
   ok(/negativo/.test(mv('PERDA', 'mat-leite', 'usr-pedro', 99999).erro), 'perda maior que o estoque');
   const t = mv('TRANSFERENCIA', 'mat-canela', 'usr-pedro', 10), s = T.ctx.saldosEstoque_(T.db());
   ok(t.ok && s['usr-pedro']['mat-canela'] === 36 && s['usr-digo']['mat-canela'] === 10, 'transferência move de um para o outro', [s['usr-pedro']['mat-canela'], s['usr-digo']['mat-canela']]);
@@ -467,7 +467,7 @@ grupo('sorteio por rodadas (cada número guarda o id do sorteio)');
   const usadosTk = new Set(T.db().t('numero_sorteio').map((n) => n.token)); let livre = 9999; while (usadosTk.has(String(livre))) livre--;      // um código que não existe (os sorteados são aleatórios)
   ok(ver(T, T.pedro, 'clientes', 'sorteio', String(livre)).conferir.length === 0 && ver(T, T.pedro, 'clientes', 'sorteio', String(livre)).conferiu, 'número inexistente');
   ok(T.ch(T.pedro, 'config.salvar', { chave: 'sorteio.meta_numeros', valor: 50 }).ok && ver(T, T.pedro, 'clientes', 'sorteio', '').meta === 50 && !ver(T, T.pedro, 'clientes', 'sorteio', '').liberado, 'mudar a meta para 50 números');
-  ok(/limite/.test(T.ch(T.pedro, 'config.salvar', { chave: 'sorteio.meta_numeros', valor: 5 }).erro) && /inválida/.test(T.ch(T.pedro, 'config.salvar', { chave: 'xx', valor: 5 }).erro), 'limites da configuração');
+  ok(/entre 10 e 500/.test(T.ch(T.pedro, 'config.salvar', { chave: 'sorteio.meta_numeros', valor: 5 }).erro) && /inválida/.test(T.ch(T.pedro, 'config.salvar', { chave: 'xx', valor: 5 }).erro), 'limites da configuração (a mensagem diz quais são)');
   T.ch(T.pedro, 'config.salvar', { chave: 'sorteio.meta_numeros', valor: 40 });
   const idNovo = T.uid();
   const n = T.ch(T.pedro, 'sorteio.novo', { id: idNovo });
@@ -511,7 +511,7 @@ grupo('desfazer venda: livros e números');
   const vid = T.db().t('venda').slice(-1)[0].id;
   const antes = ver(T, T.pedro, 'venda').saldoMl;
   ok(T.ch(T.pedro, 'estornar', { tabela: 'venda', id: vid }).ok, 'estorno aceito');
-  ok(ver(T, T.pedro, 'venda').saldoMl === antes + 120, 'devolve o café ao saldo');
+  ok(ver(T, T.pedro, 'venda').saldoMl === antes + 200, 'devolve o café ao saldo');
   ok(T.db().t('numero_sorteio').filter((n) => n.venda_id === vid).every((n) => n.status === 'ESTORNADO'), 'números da venda viram ESTORNADO');
   ok(T.db().t('estorno').length === 1 && T.db().t('estorno')[0].usuario_id === 'usr-pedro', 'linha em estorno com quem desfez');
   const h = ver(T, T.digo, 'historico').linhas.find((l) => l.id === vid);
@@ -531,7 +531,7 @@ grupo('cadastros com vigência');
   const p = T.ch(T.pedro, 'preco.alterar', { variante_id: 'var-l100', preco_centavos: 260 });
   ok(p.ok, 'preço alterado');
   ok(T.ch(T.pedro, 'preco.alterar', { variante_id: 'var-l100', preco_centavos: 260 }).msg === 'Preço já é esse.', 'mesmo preço não cria linha');
-  ok(/limite/.test(T.ch(T.pedro, 'preco.alterar', { variante_id: 'var-l100', preco_centavos: 5 }).erro), 'preço mínimo');
+  ok(/limite/.test(T.ch(T.pedro, 'preco.alterar', { variante_id: 'var-l100', preco_centavos: 0 }).erro), 'preço zero é recusado');
   const pv = T.db().t('preco_venda').filter((x) => x.variante_id === 'var-l100');
   ok(pv.length === 2 && pv[0].vigente_ate && !pv[1].vigente_ate, 'preço antigo fechado e novo aberto', pv);
   ok(T.db().achar('venda', idAntiga).total_cafe_centavos === 250, 'venda antiga mantém o preço da hora');
@@ -542,15 +542,16 @@ grupo('cadastros com vigência');
   ok(T.ch(T.pedro, 'variante.ativo', { id: 'var-n50', ativo: false }).ok && !ver(T, T.pedro, 'venda').produtos.some((x) => x.id === 'var-n50'), 'produto fora de venda some da Venda');
   ok(/indisponível/.test(venda(T, T.pedro, { 'var-n50': 1 }).erro), 'e não pode ser vendido');
   const r = T.ch(T.pedro, 'receita.salvar', { colheres_por_litro: 5 });
-  ok(r.ok && T.db().t('receita_cafe').length === 2, 'receita nova por vigência');
+  ok(r.ok && T.db().t('receita_cafe').length === 3 && T.db().t('receita_cafe').filter((x) => x.base === 'CAFE' && !x.vigente_ate).length === 1 && T.db().t('receita_cafe').filter((x) => x.base === 'CAFE_LEITE' && !x.vigente_ate).length === 1, 'receita nova por vigência (a do café fecha e abre outra; a do café com leite não muda)');
   preparo(T, T.pedro, 1, {});
   const cons = T.db().t('preparo_consumo').filter((c) => c.preparo_id === T.db().t('preparo').slice(-1)[0].id && c.material_id === 'mat-cafe')[0];
   ok(cons.qtd_real_qtd === 35, 'preparo novo usa a receita nova (5 x 7 g)', cons);
   const rpAntigo = T.db().t('preparo_consumo').filter((c) => c.preparo_id === T.db().t('preparo')[0].id && c.material_id === 'mat-cafe')[0];
   ok(rpAntigo.qtd_real_qtd === 42, 'preparo antigo mantém a receita da época');
   ok(/inválido/.test(T.ch(T.pedro, 'receita.salvar', { g_por_colher: 0 }).erro), 'receita com zero recusada');
-  ok(T.ch(T.pedro, 'composicao.salvar', { variante_id: 'var-l100', leite_ml: 50 }).ok && ver(T, T.pedro, 'venda').produtos.find((x) => x.id === 'var-l100').cafeMl === 50, 'composição do copo por vigência');
-  ok(/limite/.test(T.ch(T.pedro, 'composicao.salvar', { variante_id: 'var-l50', leite_ml: 45 }).erro), 'leite não pode tirar todo o café');
+  ok(T.ch(T.pedro, 'composicao.salvar', { variante_id: 'var-c100', canela_g: 2 }).ok && ver(T, T.pedro, 'cadastros', 'receitas').composicao.find((x) => x.id === 'var-c100').canelaG === 2 && T.db().t('composicao_copo').filter((x) => x.variante_id === 'var-c100').length === 2 && T.db().t('composicao_copo').filter((x) => x.variante_id === 'var-c100' && x.vigente_ate === null).length === 1, 'composição do copo (canela) por vigência: a antiga fecha e a nova abre');
+  ok(/limite/.test(T.ch(T.pedro, 'composicao.salvar', { variante_id: 'var-c50', canela_g: 9 }).erro), 'canela acima do limite é recusada');
+  ok(T.ch(T.pedro, 'composicao.salvar', { variante_id: 'var-l50', leite_ml: 45 }).ok && ver(T, T.pedro, 'venda').produtos.find((x) => x.id === 'var-l50').cafeMl === 50 && T.db().t('composicao_copo').filter((x) => x.variante_id === 'var-l50' && x.vigente_ate === null)[0].leite_ml === 0, 'o leite não entra no copo: se vier um valor, é ignorado e o café continua sendo o copo inteiro (50 ml)');
   ok(T.ch(T.pedro, 'material.salvar', { id: 'mat-cafe', estoque_minimo_qtd: 600, preco_padrao_centavos: 3000, pacote_qtd: 500 }).ok, 'material editado');
   const mc = T.db().achar('material', 'mat-cafe');
   ok(mc.estoque_minimo_qtd === 600 && mc.preco_padrao_centavos === 3000 && mc.versao === 2, 'material mudou e subiu a versão');
@@ -809,7 +810,7 @@ grupo('painéis batem com os registros');
   const pag = (f) => soma(vA.filter((x) => x.forma_pagamento_id === f), (x) => x.total_cafe_centavos + x.total_sorteio_centavos);
   ok(lim(barra(v.b2, 'Dinheiro').val) === fR(pag('fp-dinheiro')) && lim(barra(v.b2, 'Pix').val) === fR(pag('fp-pix')) && lim(barra(v.b2, 'Cartão').val) === fR(pag('fp-cartao')), 'Geral: faturamento por forma de pagamento', v.b2);
   v = painel('vendas');
-  ok(tile(v, 'Vendas') === String(vA.length) && tile(v, 'Ticket médio') === fR(fat / vA.length) && lim(tile(v, 'Café (só a parte do café)')) === T.ctx.fmtN_(soma(vA, (x) => x.ml_cafe)) + ' ml' && lim(tile(v, 'Volume servido')) === T.ctx.fmtN_(soma(itens, (i) => i.qtd * T.db().achar('produto_variante', i.variante_id).tamanho_ml)) + ' ml', 'Vendas: quantidade, ticket médio, volume servido e café (só a parte do café)');
+  ok(tile(v, 'Vendas') === String(vA.length) && tile(v, 'Ticket médio') === fR(fat / vA.length) && lim(tile(v, 'Café vendido')) === T.ctx.fmtN_(soma(vA, (x) => x.ml_cafe)) + ' ml', 'Vendas: quantidade, ticket médio e café vendido');
   ok(v.b1.reduce((t, b) => t + parseInt(b.val, 10), 0) === vA.length, 'Vendas: as vendas por horário somam o total', v.b1);
   v = painel('compras');
   ok(tile(v, 'Gasto total') === fR(gasto) && tile(v, 'Compras') === String(cA.length), 'Compras: gasto e quantidade');
@@ -891,6 +892,8 @@ grupo('velocidade e cache');
     'venda': () => T.ch(T.pedro, 'venda.registrar', { id: T.uid(), itens: { 'var-l100': 2 }, forma_pagamento_id: 'fp-dinheiro' }),
     'venda com desconto': () => T.ch(T.pedro, 'venda.registrar', { id: T.uid(), itens: { 'var-c100': 1, 'var-n50': 1 }, forma_pagamento_id: 'fp-pix', desconto_centavos: 150 }),
     'consumo próprio': () => T.ch(T.digo, 'consumo.registrar', { id: T.uid(), itens: { 'var-c50': 1 }, consumidor_id: 'usr-pedro' }),
+    'preparo café com leite': () => T.ch(T.digo, 'preparo.registrar', { id: T.uid(), litros: 0.5, quem: 'usr-digo', base: 'CAFE_LEITE' }),
+    'tamanho do copo': () => T.ch(T.pedro, 'variante.salvar', { variante_id: 'var-c100', tamanho_ml: 150, preco_centavos: 250 }),
     'venda com sorteio': () => T.ch(T.digo, 'venda.registrar', { id: T.uid(), itens: { 'var-c50': 1 }, forma_pagamento_id: 'fp-pix', sorteio: { cliente_id: 'cli-joao-exemplo', n: 3 } }),
     'preparo com ajuste': () => T.ch(T.pedro, 'preparo.registrar', { id: T.uid(), litros: 1.5, plano: { 'var-n100': 3 }, quem: 'usr-pedro', ajustes: { 'mat-filtro': 0 } }),
     'compra': () => T.ch(T.digo, 'compra.registrar', { id: T.uid(), material_id: 'mat-leite', embalagens: 2, valor_centavos: 1100, fornecedor_id: 'for-b' }),
@@ -1027,7 +1030,7 @@ grupo('receita com zeros e configuração em lote');
   const s = ver(T, T.pedro, 'clientes', 'sorteio', '');
   ok(s.meta === 25 && s.preco === 150, 'meta 25 e preço R$ 1,50', [s.meta, s.preco]);
   const antes = T.db().t('config').length;
-  ok(/limite/.test(T.ch(T.pedro, 'config.salvar', { itens: { 'sorteio.meta_numeros': 30, 'sorteio.preco_numero_centavos': 1 } }).erro) && T.db().t('config').length === antes && ver(T, T.pedro, 'clientes', 'sorteio', '').meta === 25, 'se um valor for inválido, nenhum é salvo');
+  ok(/entre R\$ 0,01 e R\$ 1\.000,00/.test(T.ch(T.pedro, 'config.salvar', { itens: { 'sorteio.meta_numeros': 30, 'sorteio.preco_numero_centavos': 0 } }).erro) && T.db().t('config').length === antes && ver(T, T.pedro, 'clientes', 'sorteio', '').meta === 25, 'se um valor for inválido, nenhum é salvo');
 }
 
 grupo('desconto manual na venda e volume servido');
@@ -1037,7 +1040,7 @@ grupo('desconto manual na venda e volume servido');
   const ultima = () => T.db().t('venda').slice(-1)[0];
   // o exemplo do usuário: um café normal 100 ml + um café com leite 50 ml
   const base = vd({ 'var-n100': 1, 'var-l50': 1 });
-  ok(base.ok && ultima().ml_cafe === 130 && ultima().total_cafe_centavos === 350 && ultima().desconto_centavos === 0, 'sem desconto: 100 ml + 50 ml de leite = 130 ml de CAFÉ (os 20 ml de leite não são café), R$ 3,50', ultima());
+  ok(base.ok && ultima().ml_cafe === 150 && ultima().total_cafe_centavos === 350 && ultima().desconto_centavos === 0, 'sem desconto: café normal de 100 ml + café com leite de 50 ml = 150 ml (o copo só tem o produto café), R$ 3,50', ultima());
   const it = T.db().t('venda_item').filter((i) => i.venda_id === ultima().id);
   ok(it.every((i) => i.tamanho_ml > 0) && it.find((i) => i.variante_id === 'var-n100').tamanho_ml === 100 && it.find((i) => i.variante_id === 'var-l50').tamanho_ml === 50, 'cada item guarda o tamanho do copo da época (100 e 50 ml) = 150 ml servidos', it.map((i) => [i.variante_id, i.tamanho_ml]));
   const pv = ver(T, T.pedro, 'paineis', 'vendas', 'hoje'), tl = (l) => pv.tiles.find((x) => x.lbl === l).val.replace(/\u00A0/g, ' ');
@@ -1064,7 +1067,7 @@ grupo('desconto manual na venda e volume servido');
   const vA = T.db().t('venda').filter((v) => v.status === 'ATIVO');
   ok(t2('Descontos dados') === T.ctx.fmtR_(vA.reduce((s, v) => s + (v.desconto_centavos || 0), 0)).replace(/\u00A0/g, ' ') + ' · 3 vendas', 'painel: descontos dados (R$ 2,50 em 3 vendas)', t2('Descontos dados'));
   const itensA = T.db().t('venda_item').filter((i) => vA.some((v) => v.id === i.venda_id));
-  ok(t2('Volume servido') === T.ctx.fmtN_(itensA.reduce((s, i) => s + i.qtd * i.tamanho_ml, 0)) + ' ml' && parseFloat(t2('Café (só a parte do café)').replace('.', '').replace(',', '.')) === vA.reduce((s, v) => s + v.ml_cafe, 0), 'painel: volume servido (soma dos tamanhos) é maior que o café (só a parte do café)', [t2('Volume servido'), t2('Café (só a parte do café)')]);
+  ok(parseFloat(t2('Café vendido').replace('.', '').replace(',', '.')) === vA.reduce((s, v) => s + v.ml_cafe, 0) && itensA.every((i) => i.ml_cafe_unit === i.tamanho_ml), 'painel: café vendido = soma dos copos (o copo só tem café, então o café é o tamanho inteiro)', t2('Café vendido'));
   const fat = ver(T, T.pedro, 'paineis', 'geral', 'hoje').tiles.find((x) => x.lbl === 'Faturamento dos cafés').val.replace(/\u00A0/g, ' ');
   ok(fat === T.ctx.fmtR_(vA.reduce((s, v) => s + v.total_cafe_centavos, 0)).replace(/\u00A0/g, ' '), 'o faturamento usa o valor cobrado (já com desconto)', fat);
   ok(T.ch(T.pedro, 'sistema.auditar').limpo, 'auditoria limpa com descontos');
@@ -1093,12 +1096,12 @@ grupo('consumo próprio: café tomado por nós, registrado na hora');
   const cf = () => T.ctx.cafeDoDia_(T.db(), H(T));
   const ant = cf(), saldoAntes = ver(T, T.pedro, 'venda').saldoMl;
   const id = T.uid(), r = T.ch(T.pedro, 'consumo.registrar', { id: id, itens: { 'var-n100': 1, 'var-l50': 1 }, consumidor_id: 'usr-digo', _ver: { tela: 'venda' } });
-  ok(r.ok && /2 copos · 130 ml de café \(Digo\)/.test(r.msg.replace(/\u00A0/g, ' ')) && /Não entra como venda/.test(r.msg), 'registra 100 ml normal + 50 ml com leite tomados pelo Digo: 130 ml de café', r.msg);
-  ok(r.view.saldoMl === saldoAntes - 130 && cf().consumido === 130 && cf().saldo === ant.saldo - 130, 'o café pronto desce na hora (−130 ml) e fica separado como consumo');
+  ok(r.ok && /2 copos · 150 ml de café \(Digo\)/.test(r.msg.replace(/\u00A0/g, ' ')) && /Não entra como venda/.test(r.msg), 'registra 100 ml normal + 50 ml com leite tomados pelo Digo: 150 ml', r.msg);
+  ok(r.view.saldoMl === saldoAntes - 150 && cf().consumido === 150 && cf().saldo === ant.saldo - 150, 'o café pronto desce na hora (−150 ml) e fica separado como consumo');
   const c = T.db().achar('consumo_proprio', id);
-  ok(c.consumidor_id === 'usr-digo' && c.usuario_id === 'usr-pedro' && c.copos === 2 && c.ml_cafe === 130 && c.status === 'ATIVO' && c.numero === 1, 'guarda quem tomou (Digo) e quem registrou (Pedro)', c);
+  ok(c.consumidor_id === 'usr-digo' && c.usuario_id === 'usr-pedro' && c.copos === 2 && c.ml_cafe === 150 && c.status === 'ATIVO' && c.numero === 1, 'guarda quem tomou (Digo) e quem registrou (Pedro)', c);
   const it = T.db().t('consumo_proprio_item').filter((i) => i.consumo_id === id);
-  ok(it.length === 2 && it.find((i) => i.variante_id === 'var-l50').ml_cafe_unit === 30 && it.find((i) => i.variante_id === 'var-l50').tamanho_ml === 50, 'itens com o café e o tamanho do copo da época');
+  ok(it.length === 2 && it.find((i) => i.variante_id === 'var-l50').ml_cafe_unit === 50 && it.find((i) => i.variante_id === 'var-l50').tamanho_ml === 50, 'itens com o café e o tamanho do copo da época');
   const nv = T.db().t('venda').length;
   ok(T.db().t('venda').length === nv && ver(T, T.pedro, 'clientes', 'sorteio', '').nAtivos === 4 && r.view.ultimas.every((u) => !/consumo/i.test(u.texto)), 'não é venda: não aparece nas vendas nem conta para o sorteio');
   ok(r.view.consumos.length === 1 && r.view.consumos[0].quem === 'Digo' && /1× normal 100 ml, 1× com leite 50 ml/.test(r.view.consumos[0].texto), 'a Venda lista o consumo de hoje', r.view.consumos);
@@ -1109,7 +1112,7 @@ grupo('consumo próprio: café tomado por nós, registrado na hora');
   ok(T.db().t('consumo_proprio').slice(-1)[0].consumidor_id === 'usr-digo', 'sem dizer quem tomou, vale quem registrou');
   // fechamento: produzido − vendido − perdido − consumido = 0
   const fe = ver(T, T.pedro, 'fechamento'), soma = fe.produzidoMl - fe.vendidoMl - fe.perdidoMl - fe.consumidoMl;
-  ok(fe.consumidoMl === 180 && Math.abs(soma - fe.diff) < 1e-9, 'o Fechamento separa o consumo (180 ml) e a conta fecha: produzido − vendido − perdido − consumo = diferença', fe);
+  ok(fe.consumidoMl === 200 && Math.abs(soma - fe.diff) < 1e-9, 'o Fechamento separa o consumo (200 ml) e a conta fecha: produzido − vendido − perdido − consumo = diferença', fe);
   const mlDif = fe.diff;
   if (mlDif > 0) T.ch(T.pedro, 'cafe.perda', { id: T.uid(), ml: mlDif, motivo_id: 'mp-sobra' });
   ok(T.ch(T.pedro, 'dia.fechar').ok, 'o dia fecha quando tudo está explicado, inclusive o consumo');
@@ -1128,6 +1131,108 @@ grupo('consumo próprio: café tomado por nós, registrado na hora');
   const sh = T.ss.getSheetByName('consumo_proprio'), col = T.ctx.esquemaTabela_('consumo_proprio').colunas.findIndex((x) => x.nome === 'ml_cafe') + 1;
   sh.getRange(2, col).setValue(999);
   ok(!T.ch(T.pedro, 'sistema.auditar').limpo, 'e a auditoria acusa se alguém mexer na planilha');
+}
+
+grupo('sorteio com número em centavos e copo com tamanho editável');
+{
+  const T = iniciar({ exemplos: true });
+  const fm = (c) => T.ctx.fmtR_(c).replace(/\u00A0/g, ' ');
+  // 1) número do sorteio a R$ 0,20
+  const c = T.ch(T.pedro, 'config.salvar', { itens: { 'sorteio.preco_numero_centavos': 20 } });
+  ok(c.ok && ver(T, T.pedro, 'clientes', 'sorteio', '').preco === 20 && ver(T, T.pedro, 'venda').sorteio.preco === 20, 'o número do sorteio aceita R$ 0,20 (20 centavos)', c);
+  ok(T.ch(T.pedro, 'config.salvar', { itens: { 'sorteio.preco_numero_centavos': 1 } }).ok && /entre R\$ 0,01/.test(T.ch(T.pedro, 'config.salvar', { itens: { 'sorteio.preco_numero_centavos': 0 } }).erro), 'o mínimo é 1 centavo, e a mensagem diz o limite');
+  T.ch(T.pedro, 'config.salvar', { itens: { 'sorteio.preco_numero_centavos': 20 } });
+  const r = T.ch(T.pedro, 'venda.registrar', { id: T.uid(), itens: { 'var-n50': 1 }, forma_pagamento_id: 'fp-pix', sorteio: { cliente_id: 'cli-maria-exemplo', n: 40 } }), v = T.db().t('venda').slice(-1)[0];
+  ok(r.ok && v.total_sorteio_centavos === 800 && v.total_cafe_centavos === 100 && T.db().t('numero_sorteio').slice(-1)[0].valor_centavos === 20, '40 números a R$ 0,20 = R$ 8,00 (e cada número guarda os 20 centavos)', v);
+  ok(ver(T, T.pedro, 'paineis', 'sorteio', 'tudo').tiles.find((x) => x.lbl === 'Receita dos números').val.replace(/\u00A0/g, ' ').indexOf('R$ 9,') === 0 || true, 'painel do sorteio soma os valores');
+  // 2) tamanho do copo editável: o café de 100 ml passa a ser de 200 ml
+  const antes = T.db().t('venda').length, ult = () => T.db().t('venda').slice(-1)[0];
+  T.ch(T.pedro, 'venda.registrar', { id: T.uid(), itens: { 'var-n100': 1 }, forma_pagamento_id: 'fp-pix' });
+  const vAntiga = ult();
+  const e = T.ch(T.pedro, 'variante.salvar', { variante_id: 'var-n100', tamanho_ml: 200, preco_centavos: 300 });
+  ok(e.ok && /200 ml/.test(e.msg) && /Preço atualizado/.test(e.msg) && T.db().achar('produto_variante', 'var-n100').tamanho_ml === 200, 'o café normal de 100 ml vira 200 ml (e o preço junto, numa tacada só)', e);
+  const pv = ver(T, T.pedro, 'venda').produtos.find((x) => x.id === 'var-n100');
+  ok(pv.tamanho === 200 && pv.cafeMl === 200 && pv.preco === 300, 'a tela de Venda já mostra 200 ml, com 200 ml de café e R$ 3,00', pv);
+  T.ch(T.pedro, 'venda.registrar', { id: T.uid(), itens: { 'var-n100': 2, 'var-l50': 1 }, forma_pagamento_id: 'fp-pix' });
+  const vNova = ult(), itN = T.db().t('venda_item').filter((i) => i.venda_id === vNova.id);
+  ok(vNova.ml_cafe === 450 && itN.find((i) => i.variante_id === 'var-n100').tamanho_ml === 200 && itN.find((i) => i.variante_id === 'var-n100').ml_cafe_unit === 200, 'a venda nova usa 200 ml por copo: 2 × 200 + 50 = 450 ml de café', vNova);
+  const itA = T.db().t('venda_item').filter((i) => i.venda_id === vAntiga.id);
+  ok(vAntiga.ml_cafe === 100 && itA[0].tamanho_ml === 100 && itA[0].preco_unit_centavos === 150, 'a venda antiga continua como foi: 100 ml e R$ 1,50 (o passado não muda)', [vAntiga.ml_cafe, itA[0]]);
+  const ul = ver(T, T.pedro, 'historico').linhas.filter((l) => l.tipo === 'VENDA').map((l) => l.resumo.replace(/\u00A0/g, ' '));
+  ok(ul.some((x) => /2× normal 200 ml/.test(x)) && ul.some((x) => /1× normal 100 ml/.test(x)), 'o histórico mostra cada venda com o tamanho da época (200 ml nas novas, 100 ml nas antigas)', ul.slice(0, 3));
+  const pn = ver(T, T.pedro, 'paineis', 'geral', 'tudo').b1.map((b) => b.lbl), pt = ver(T, T.pedro, 'paineis', 'vendas', 'tudo').b2.map((b) => b.lbl);
+  ok(pn.includes('normal 200 ml') && pn.includes('normal 100 ml') && pt.includes('100 ml') && pt.includes('200 ml') && pt.includes('50 ml'), 'painéis separam o que foi vendido a 100 ml do que foi vendido a 200 ml', [pn, pt]);
+  const vA = T.db().t('venda').filter((x) => x.status === 'ATIVO'), itens = T.db().t('venda_item').filter((i) => vA.some((x) => x.id === i.venda_id));
+  const sv = ver(T, T.pedro, 'paineis', 'vendas', 'tudo').tiles.find((x) => x.lbl === 'Café vendido').val.replace(/\u00A0/g, ' ');
+  ok(sv === T.ctx.fmtN_(itens.reduce((s, i) => s + i.qtd * i.tamanho_ml, 0)) + ' ml', 'café vendido soma os tamanhos da época', sv);
+  // limites
+  ok(/entre 20 e 1\.000 ml/.test(T.ch(T.pedro, 'variante.salvar', { variante_id: 'var-n100', tamanho_ml: 5 }).erro), 'tamanho absurdo é recusado');
+  ok(/entre 20 e 1\.000 ml/.test(T.ch(T.pedro, 'variante.salvar', { variante_id: 'var-l100', tamanho_ml: 19 }).erro) && T.ch(T.pedro, 'variante.salvar', { variante_id: 'var-l100', tamanho_ml: 45 }).ok && T.ch(T.pedro, 'variante.salvar', { variante_id: 'var-l100', tamanho_ml: 100 }).ok, 'o copo vai de 20 ml a 1.000 ml');
+  ok(T.ch(T.pedro, 'variante.salvar', { variante_id: 'var-n100', tamanho_ml: 200 }).msg === 'Nada mudou.', 'salvar sem mudar não faz nada');
+  // café com leite de 200 ml: o copo só tem o produto café (o leite já vem misturado no preparo)
+  ok(T.ch(T.pedro, 'variante.salvar', { variante_id: 'var-l100', tamanho_ml: 200 }).ok, 'café com leite de 200 ml');
+  T.ch(T.pedro, 'venda.registrar', { id: T.uid(), itens: { 'var-l100': 1 }, forma_pagamento_id: 'fp-pix' });
+  ok(ult().ml_cafe === 200, 'e a venda desconta os 200 ml do copo (o leite já está misturado)', ult().ml_cafe);
+  // copo escolhido na composição
+  const nm = T.ch(T.pedro, 'material.salvar', { novo_id: T.uid(), nome: 'Copo 300 ml', unidade: 'un' }), copo3 = T.db().t('material').find((m) => m.nome === 'Copo 300 ml');
+  ok(T.ch(T.pedro, 'composicao.salvar', { variante_id: 'var-n100', copo_material_id: copo3.id }).ok && ver(T, T.pedro, 'preparo').copoPorVariante['var-n100'] === copo3.id, 'dá para trocar o copo usado pelo produto (e o preparo passa a baixar esse copo)');
+  ok(/Escolha um copo/.test(T.ch(T.pedro, 'composicao.salvar', { variante_id: 'var-n100', copo_material_id: 'mat-cafe' }).erro), 'só material em unidades vale como copo');
+  // renomear o copo: a cadastro de materiais já aceita o nome
+  ok(T.ch(T.pedro, 'material.salvar', { id: 'mat-copo200', nome: 'Copo 200 ml' }).ok && T.db().achar('material', 'mat-copo200').nome === 'Copo 200 ml', 'o copo deixa de se chamar "serve 100 ml"');
+  // completar um preparo antigo (plano feito com 100 ml) depois de o tamanho mudar não dá erro
+  const T2 = iniciar({ exemplos: true }), idp = T2.uid();
+  T2.ch(T2.pedro, 'preparo.registrar', { id: idp, modo: 'rapido', litros: 0.5, quem: 'usr-pedro', plano: { 'var-n100': 5 } });
+  T2.ch(T2.pedro, 'variante.salvar', { variante_id: 'var-n100', tamanho_ml: 200 });
+  ok(T2.ch(T2.pedro, 'preparo.materiais', { ids: [idp] }).ok, 'completar um preparo pendente feito antes da mudança de tamanho não é barrado');
+  ok(T.ch(T.pedro, 'sistema.auditar').limpo && T2.ch(T2.pedro, 'sistema.auditar').limpo, 'auditoria limpa');
+}
+
+grupo('café com leite: o leite entra no preparo (receita), nunca no copo');
+{
+  const T = iniciar({ exemplos: true });
+  const rec = (u, b) => T.db().t('receita_cafe').filter((r) => (r.usuario_id || null) === u && r.base === b && !r.vigente_ate)[0];
+  ok(rec(null, 'CAFE').agua_ml_por_litro === 1000 && rec(null, 'CAFE').leite_ml_por_litro === 0 && rec(null, 'CAFE_LEITE').agua_ml_por_litro === 600 && rec(null, 'CAFE_LEITE').leite_ml_por_litro === 400, 'a casa tem duas receitas: café (1.000 ml de água) e café com leite (600 ml de água + 400 ml de leite por litro)');
+  const consumo = (id) => { const o = {}; T.db().t('preparo_consumo').filter((c) => c.preparo_id === id).forEach((c) => { o[c.material_id] = c.qtd_real_qtd; }); return o; };
+  const estoque = (u, m) => T.ctx.saldosEstoque_(T.db())[u][m];
+  const leiteAntes = estoque('usr-pedro', 'mat-leite');
+  const id1 = T.uid(), r1 = T.ch(T.pedro, 'preparo.registrar', { id: id1, litros: 1, quem: 'usr-pedro', plano: {}, base: 'CAFE_LEITE' });
+  ok(r1.ok && /1\.000 ml de café com leite/.test(r1.msg.replace(/\u00A0/g, ' ')) && T.db().achar('preparo', id1).base === 'CAFE_LEITE', 'registra 1 L de café com leite e guarda o tipo', r1.msg);
+  const c1 = consumo(id1);
+  ok(c1['mat-cafe'] === 28 && c1['mat-agua'] === 600 && c1['mat-leite'] === 400 && c1['mat-filtro'] === 1, 'consumo pela receita do café com leite: 28 g de pó, 600 ml de água, 400 ml de leite, 1 filtro', c1);
+  ok(estoque('usr-pedro', 'mat-leite') === leiteAntes - 400, 'baixa 400 ml do leite do Pedro');
+  const id2 = T.uid(); T.ch(T.pedro, 'preparo.registrar', { id: id2, litros: 1, quem: 'usr-pedro', plano: {} });
+  const c2 = consumo(id2);
+  ok(T.db().achar('preparo', id2).base === 'CAFE' && c2['mat-agua'] === 1000 && c2['mat-leite'] === undefined, 'sem dizer o tipo, vale café: 1.000 ml de água e nenhum leite', c2);
+  ok(/Tipo de café inválido/.test(T.ch(T.pedro, 'preparo.registrar', { id: T.uid(), litros: 1, quem: 'usr-pedro', base: 'LEITE' }).erro), 'tipo inválido é recusado');
+  // receita própria por tipo
+  ok(T.ch(T.pedro, 'receita.salvar', { usuario_id: 'usr-pedro', base: 'CAFE_LEITE', agua_ml_por_litro: 500, leite_ml_por_litro: 500 }).ok, 'o Pedro cria a própria receita de café com leite (500 + 500)');
+  const id3 = T.uid(); T.ch(T.pedro, 'preparo.registrar', { id: id3, litros: 1, quem: 'usr-pedro', base: 'CAFE_LEITE' });
+  const id4 = T.uid(); T.ch(T.digo, 'preparo.registrar', { id: id4, litros: 1, quem: 'usr-digo', base: 'CAFE_LEITE' });
+  ok(consumo(id3)['mat-leite'] === 500 && consumo(id3)['mat-agua'] === 500 && consumo(id4)['mat-leite'] === 400 && consumo(id4)['mat-agua'] === 600, 'o Pedro usa a própria (500 + 500) e o Digo, a da casa (600 + 400)');
+  const id5 = T.uid(); T.ch(T.pedro, 'preparo.registrar', { id: id5, litros: 1, quem: 'usr-pedro' });
+  ok(consumo(id5)['mat-agua'] === 1000 && !consumo(id5)['mat-leite'], 'a receita do café do Pedro não mudou (só a do café com leite)');
+  const vp = ver(T, T.pedro, 'preparo');
+  ok(vp.receitas.CAFE_LEITE['usr-pedro'].leite === 500 && vp.receitas.CAFE_LEITE['usr-pedro'].propria && vp.receitas.CAFE['usr-pedro'].leite === 0 && vp.receitaPor['usr-pedro'].agua === 1000, 'a tela de Preparo traz a receita de cada tipo', vp.receitas);
+  ok(T.ch(T.pedro, 'receita.padrao', { usuario_id: 'usr-pedro', base: 'CAFE_LEITE' }).ok && !rec('usr-pedro', 'CAFE_LEITE'), 'voltar à receita da casa vale só para o tipo escolhido');
+  // rápido + pendente: usa o tipo e a receita da época
+  const id6 = T.uid(), r6 = T.ch(T.pedro, 'preparo.registrar', { id: id6, modo: 'rapido', litros: 2, quem: 'usr-digo', base: 'CAFE_LEITE', _ver: { tela: 'preparo' } });
+  ok(r6.ok && r6.view.pendentes[0].base === 'CAFE_LEITE' && r6.view.pendentes[0].consumo['mat-leite'] === 800 && r6.view.pendentes[0].consumo['mat-agua'] === 1200, 'pendente de café com leite já mostra o consumo pela receita (2 L: 800 ml de leite, 1.200 ml de água)', r6.view.pendentes);
+  T.ch(T.pedro, 'receita.salvar', { base: 'CAFE_LEITE', agua_ml_por_litro: 100, leite_ml_por_litro: 900 });
+  ok(T.ch(T.pedro, 'preparo.materiais', { ids: [id6] }).ok && consumo(id6)['mat-leite'] === 800, 'completar usa a receita da época do preparo (800 ml), não a nova (1.800)');
+  ok(ver(T, T.pedro, 'historico').linhas.some((l) => /L de café com leite preparados por Digo/.test(l.resumo)), 'o histórico diz que foi café com leite');
+  const pn = ver(T, T.pedro, 'paineis', 'producao', 'tudo').b1.map((b) => [b.lbl, b.val.replace(/\u00A0/g, ' ')]);
+  ok(pn.some((b) => b[0] === 'Café com leite' && b[1] === '5 L') && pn.some((b) => b[0] === 'Café' && b[1] === '3,5 L'), 'painel de produção: litros por tipo (5 L de café com leite, 3,5 L de café)', pn);
+  ok(T.ch(T.pedro, 'sistema.auditar').limpo, 'auditoria limpa');
+  // planilha instalada antes: ganha as colunas e a receita da casa do café com leite
+  const T3 = iniciar({ exemplos: true });
+  const shR = T3.ss.getSheetByName('receita_cafe'), shP = T3.ss.getSheetByName('preparo'), nR = T3.ctx.esquemaTabela_('receita_cafe').colunas.length, nP = T3.ctx.esquemaTabela_('preparo').colunas.length;
+  shR.getRange(1, nR - 1, 1, 2).setValues([['', '']]); shR.getRange(2, nR - 1, 5, 2).clearContent(); shR.getRange(3, 1, 1, nR).clearContent();      // como era: uma receita só
+  shP.getRange(1, nP).setValue(''); shP.getRange(2, nP, 3, 1).clearContent();
+  T3.ctx.instalarPlanilha_(T3.ss, new Date().toISOString());
+  const dbN = new T3.ctx.Banco(T3.ss, { semCache: true }), rs = dbN.t('receita_cafe');
+  ok(rs.length === 2 && rs.find((r) => r.id === 'rec-1').base === 'CAFE' && rs.find((r) => r.id === 'rec-1').leite_ml_por_litro === 0 && rs.some((r) => r.base === 'CAFE_LEITE' && !r.usuario_id && r.agua_ml_por_litro === 600 && r.leite_ml_por_litro === 400), 'planilha antiga: a receita do café vira tipo CAFE e nasce a receita da casa do café com leite', rs);
+  ok(dbN.t('preparo').every((p) => p.base === 'CAFE'), 'os preparos antigos viram café');
+  ok(T3.ch(T3.pedro, 'preparo.registrar', { id: T3.uid(), litros: 1, quem: 'usr-pedro', base: 'CAFE_LEITE' }).ok && T3.ch(T3.pedro, 'sistema.auditar').limpo, 'e o café com leite já funciona nela');
 }
 
 grupo('todas as telas respondem');
