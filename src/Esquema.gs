@@ -10,7 +10,7 @@
  */
 var VERSAO_ESQUEMA = 1;
 /* sobe quando a instalação passa a fazer algo novo (ex.: formatar as linhas). O app recusa trabalhar até rodar "Instalar / atualizar". */
-var VERSAO_INSTALACAO_ = 12;
+var VERSAO_INSTALACAO_ = 13;
 var INICIO_VIGENCIA = '2000-01-01T00:00:00.000Z';
 
 var AUDITORIA_ = 'criado_em:dt, criado_por:id>usuario, atualizado_em:dt?, atualizado_por:id>usuario?, versao:int';
@@ -28,7 +28,7 @@ var DEF_ESQUEMA_ = [
   ['fornecedor', 'cadastro', 'Onde as compras são feitas', 'id:id*, nome:texto#, ativo:bool', 1],
   ['forma_pagamento', 'cadastro', 'Formas de pagamento', 'id:id*, nome:texto#, ativo:bool', 1],
   ['motivo_perda', 'cadastro', 'Motivos de perda de café', 'id:id*, nome:texto#, ativo:bool', 1],
-  ['cliente', 'cadastro', 'Clientes que participam do sorteio (dados mínimos)', 'id:id*, codigo:texto#, nome:texto, telefone:texto#, email:texto#, consentimento_em:dt?, origem:enum(REAL|EXEMPLO), ativo:bool', 1],
+  ['cliente', 'cadastro', 'Clientes do clube de fidelidade e do sorteio (dados mínimos). motivo: por que compra e o que gosta, escrito à mão', 'id:id*, codigo:texto#, nome:texto, telefone:texto#, email:texto#, consentimento_em:dt?, origem:enum(REAL|EXEMPLO), ativo:bool', 1, 'motivo:texto?'],
   ['config', 'cadastro', 'Configurações com vigência (sorteio, materiais-chave)', 'id:id*, chave:texto, valor:texto, vigente_de:dt, vigente_ate:dt?, criado_em:dt, criado_por:id>usuario', 0],
   ['promocao', 'cadastro', 'Promoções (cadastro reservado; ainda não aplicadas nas vendas)', 'id:id*, nome:texto, desconto_pct:qtd, ativo:bool', 1],
 
@@ -44,7 +44,7 @@ var DEF_ESQUEMA_ = [
   ['ajuste_cafe', 'movimento', 'Perdas e acertos de café pronto', 'id:id*, numero:int#, usuario_id:id>usuario, data_hora:dt, dia_local:dia, tipo:enum(PERDA|ACERTO), ml_cafe:qtd, motivo_id:id>motivo_perda?, observacao:texto?, status:' + STATUS_, 1],
   ['ajuste_estoque', 'movimento', 'Ajustes, perdas de material e transferências entre pessoas', 'id:id*, numero:int#, tipo:enum(AJUSTE|PERDA|TRANSFERENCIA), material_id:id>material, usuario_id:id>usuario, usuario_destino_id:id>usuario?, qtd:qtd, motivo:texto?, data_hora:dt, dia_local:dia, status:' + STATUS_, 1],
   ['lancamento_financeiro', 'movimento', 'Aportes, reembolsos e despesas', 'id:id*, numero:int#, tipo:enum(APORTE|REEMBOLSO|DESPESA), usuario_id:id>usuario, valor_centavos:cent, descricao:texto?, data_hora:dt, dia_local:dia, status:' + STATUS_, 1],
-  ['numero_sorteio', 'movimento', 'Números do sorteio vendidos (nunca reaproveitados). Cada número pertence ao sorteio aberto na hora da venda', 'id:id*, numero:int#, token:texto#, cliente_id:id>cliente, venda_id:id>venda, sorteio_id:id>sorteio, valor_centavos:cent, criado_em:dt, status:enum(ATIVO|ESTORNADO)', 0],
+  ['numero_sorteio', 'movimento', 'Números do sorteio (nunca reaproveitados). Hoje são dados a um cliente pelo clube (sem venda e sem valor); antes eram vendidos. Cada número pertence ao sorteio aberto na hora', 'id:id*, numero:int#, token:texto#, cliente_id:id>cliente, venda_id:id>venda?, sorteio_id:id>sorteio, valor_centavos:cent, criado_em:dt, status:enum(ATIVO|ESTORNADO)', 0, 'motivo:texto?, criado_por:id>usuario?'],
   ['sorteio', 'movimento', 'Sorteios (rodadas). Só um fica ABERTO; os números vendidos entram no aberto. Novo sorteio encerra o aberto e abre outro', 'id:id*, rodada:int#, status:enum(ABERTO|ENCERRADO|CANCELADO), meta_numeros:int, qtd_numeros:int, aberto_em:dt, encerrado_em:dt?, encerrado_por:id>usuario?', 1],
   ['fechamento_dia', 'movimento', 'Fechamento e reabertura do dia (vale a última linha de cada dia)', 'id:id*, dia_local:dia, status:enum(FECHADO|REABERTO), saldo_ml:qtd, usuario_id:id>usuario, data_hora:dt', 0],
 

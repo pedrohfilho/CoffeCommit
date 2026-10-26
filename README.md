@@ -40,7 +40,7 @@ Eu faço o papel de DBA do projeto. Por isso o **modelo de dados vem antes das t
 | **Compra** | Material, embalagens, valor e local, com histórico de preços (menor, maior, médio, último) e correção de compra |
 | **Estoque** | Saldo por pessoa e por material, contagem ("contei o estoque"), transferência entre nós dois, ajuste e perda |
 | **Fechamento do dia** | Confere se tudo o que foi preparado está explicado: vendido, perdido ou tomado |
-| **Clientes e sorteio** | Cadastro mínimo, números com código, sorteios em rodadas e conferência do número sorteado |
+| **Clientes, clube e sorteio** | Cadastro mínimo, **clube de fidelidade** (cada venda pode ser ligada a um cliente, e a aba Clube mostra o que cada um compra, o café preferido e uma anotação de por que compra), números do sorteio dados a quem faz algo especial, sorteios em rodadas e conferência do número sorteado |
 | **Financeiro** | Aportes, reembolsos, despesas, resultado e payback por pessoa |
 | **Painéis** | Oito visões por período (hoje, 7 dias, tudo), calculadas dos registros, incluindo o **Destino do café** (vendido pago, grátis, com desconto, consumo nosso e perdido, em copos e ml), mais o **Dia a dia**: um calendário do mês que mostra os dias com serviço, os sem serviço e os mais fortes (por copos, faturamento ou litros), com o detalhe de cada dia e a média por dia da semana |
 | **Histórico** | Tudo o que foi registrado, com "desfazer" por estorno |
@@ -253,7 +253,9 @@ Desfazer cria uma linha em `estorno`, muda o status do registro para `ESTORNADO`
 
 **Material sem controle de estoque.** A água, por exemplo, tem `controla_estoque = FALSO`: o consumo é registrado, mas ela não aparece em Estoque nem em Compra e nunca trava nada. Ela é só **custo**: tem um preço de referência (galão de 20 L a R$ 8,50, que se ajusta em Cadastros › Materiais) e o custo da água de cada preparo fica gravado e entra no Resultado.
 
-**Sorteio em rodadas.** Sempre existe um sorteio `ABERTO`, e cada número vendido guarda o `sorteio_id` em que nasceu. O progresso conta **números** vendidos no sorteio aberto. "Novo sorteio" encerra o atual (os números ficam guardados nele) e abre outro do zero, sem reaproveitar numeração nem códigos de 4 dígitos.
+**Clube de fidelidade.** Qualquer venda pode ser ligada a um cliente (`venda.cliente_id`). A aba Clube analisa só as vendas ligadas: copos, faturamento, dias que veio, café preferido, dias da semana, últimas compras e uma anotação escrita à mão (`cliente.motivo`). O cliente ganha um **número do sorteio** ao fazer algo específico (hoje, tomar 2 cafés no dia, regra `clube.copos_para_numero`): o sistema só **sugere** e quem dá o número sou eu. O número dado não tem venda nem valor (`venda_id` vazio, `valor_centavos` 0) e pode ser cancelado; o que veio de venda só sai desfazendo a venda.
+
+**Sorteio em rodadas.** Sempre existe um sorteio `ABERTO`, e cada número guarda o `sorteio_id` em que nasceu. O progresso conta os **números** do sorteio aberto, dados ou (nas vendas antigas) vendidos. "Novo sorteio" encerra o atual (os números ficam guardados nele) e abre outro do zero, sem reaproveitar numeração nem códigos de 4 dígitos.
 
 **Medidas em colher.** O café, o açúcar e a canela podem ser informados em colheres (a medida que eu realmente uso) ou em gramas, no preparo e na receita. O sistema sempre guarda gramas: a receita define quantos gramas tem cada colher de café, de açúcar e de canela.
 
@@ -314,7 +316,7 @@ O simulador reproduz detalhes que costumam esconder bugs no Planilhas real: text
 
 ## Qualidade
 
-- **667 verificações automáticas** das regras: venda, preparo, compra, estoque, fechamento, estorno, sorteio, desconto, consumo, painéis, auditoria, DDL e migração de planilhas já instaladas.
+- **696 verificações automáticas** das regras: venda, preparo, compra, estoque, fechamento, estorno, sorteio, desconto, consumo, painéis, auditoria, DDL e migração de planilhas já instaladas.
 - **Painéis conferidos contra os registros:** os testes recalculam cada número de cada painel direto das linhas e comparam com a tela.
 - **Teste diferencial do cache:** depois de cada uma de mais de vinte operações, todas as telas lidas com cache são comparadas com as lidas direto da planilha e precisam ser idênticas. Cache sumindo, corrompido ou falhando também não pode mudar resultado.
 - **Orçamento de chamadas:** os testes falham se uma gravação passar de 8 chamadas à planilha ou se abrir uma tela já vista tocar na planilha.

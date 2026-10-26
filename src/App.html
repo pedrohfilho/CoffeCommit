@@ -38,7 +38,7 @@
     estoque: [['saldos', 'Saldos'], ['movs', 'Movimentos'], ['mexer', 'Ajustar / transferir']],
     cadastros: [['materiais', 'Materiais'], ['produtos', 'Produtos e preços'], ['receitas', 'Receitas'], ['listas', 'Listas'], ['promos', 'Promoções']],
     financeiro: [['resultado', 'Resultado e payback'], ['lanc', 'Lançamentos']],
-    clientes: [['lista', 'Clientes'], ['sorteio', 'Sorteio']],
+    clientes: [['lista', 'Clientes'], ['clube', 'Clube'], ['sorteio', 'Sorteio']],
     paineis: [['geral', 'Geral'], ['dias', 'Dia a dia'], ['vendas', 'Vendas'], ['destino', 'Destino do café'], ['estoque', 'Estoque'], ['compras', 'Compras'], ['producao', 'Produção'], ['fin', 'Financeiro'], ['sorteio', 'Sorteio']]
   };
   var S = {
@@ -68,8 +68,8 @@
       }
     });
   }
-  function chaveVista(q) { return q.tela + (SUBS[q.tela] ? ':' + q.sub : '') + (q.tela === 'paineis' ? ':' + q.periodo + (q.sub === 'dias' ? ':' + (q.mes || '') : '') + (q.pessoa ? ':p' + q.pessoa : '') : ''); }
-  function consulta() { var t = S.tela, sub = S.sub[t]; var q = { tela: t, sub: sub }; if (t === 'clientes') q.q = sub === 'sorteio' ? S.cli.nq : S.cli.q; if (t === 'paineis') { q.periodo = S.periodo; if (sub === 'dias' && S.mes) q.mes = S.mes; if (S.pessoa && (sub === 'dias' || sub === 'vendas' || sub === 'destino')) q.pessoa = S.pessoa; } return q; }
+  function chaveVista(q) { return q.tela + (SUBS[q.tela] ? ':' + q.sub : '') + (q.tela === 'paineis' ? ':' + q.periodo + (q.sub === 'dias' ? ':' + (q.mes || '') : '') + (q.pessoa ? ':p' + q.pessoa : '') : '') + (q.cid ? ':c' + q.cid : ''); }
+  function consulta() { var t = S.tela, sub = S.sub[t]; var q = { tela: t, sub: sub }; if (t === 'clientes') { q.q = sub === 'sorteio' ? S.cli.nq : S.cli.q; if (sub === 'clube' && S.cli.det) q.cid = S.cli.det; } if (t === 'paineis') { q.periodo = S.periodo; if (sub === 'dias' && S.mes) q.mes = S.mes; if (S.pessoa && (sub === 'dias' || sub === 'vendas' || sub === 'destino')) q.pessoa = S.pessoa; } return q; }
   function V() { return S.v[chaveVista(consulta())] || null; }
   function guardarVista(q, view) { S.v[chaveVista(q)] = view; }
 
@@ -193,6 +193,7 @@
       var nn = S.ticket.numeros;
       h += card(linha(lbl('Números do sorteio de ' + S.ticket.cliente + ' (' + nn.length + ')'), ghost('Ok', 'ticket-ok')) + '<div class="numbox"><div class="mono' + (nn.length > 10 ? ' cols' : '') + '">' + esc(linhasNum(nn)) + '</div></div>' + muted('Anote para o cliente: cada número tem o seu código.'), 'ticket');
     }
+    if (S.sug) h += card('<div class="nm">' + esc(nb(S.sug.nome + ' já tomou ' + S.sug.copos + (S.sug.copos === 1 ? ' café' : ' cafés') + ' hoje.')) + '</div>' + muted('Dar 1 número do sorteio?') + '<div class="row2">' + btn('Dar número', 'num-dar', null, { dis: S.ocupado }) + ghost('Agora não', 'num-nao') + '</div>', 'ok');
     h += card('<div class="row">' + '<div>' + lbl('Café pronto hoje') + '<div class="big">' + esc(fmtQ(saldo, 'ml')) + '</div></div>' + '<div class="right">' + ghost('Fechar o dia', 'ir', 'fechamento') + (saldo <= 0 ? ghost('Registrar preparo', 'ir', 'preparo') : '') + '</div></div>' +
       (saldo < 0 ? muted('Vendeu ' + fmtN(-saldo) + ' ml a mais que o preparado. Registre o preparo que faltou ou ajuste no Fechamento.') : saldo === 0 ? muted('Sem café pronto. Registre um preparo antes de vender.') : ''), saldo <= 0 ? 'warn' : '');
     if (!modoCons && (v.usuarios || []).length > 1) h += card('<div class="row"><span class="lbl">Vendido por</span><div class="chips">' + v.usuarios.map(function (u) { return chip(u.nome, (S.vendedor || S.user.id) === u.id, 'vendedor', u.id); }).join('') + '</div></div>', S.vendedor && S.vendedor !== S.user.id ? 'warn' : '');   // laranja quando a venda vai para a outra pessoa
@@ -201,17 +202,14 @@
       return '<div class="prow' + (n > 0 ? ' sel' : '') + '"><div><div class="pn">' + esc(p.nome) + '</div>' + muted(nb(p.tamanho + ' ml \u00B7 ' + fmtR(p.preco))) + '</div>' +
         step(String(n), 'cart', p.id + '|-1', p.id + '|1', 'Tirar um ' + p.nome + ' de ' + p.tamanho + ' ml', 'Adicionar um ' + p.nome + ' de ' + p.tamanho + ' ml', 30) + '</div>';
     }).join('') + '</div>';
-    var sorteio = '';
-    if (v.sorteio) {
-    sorteio = linha('<div><div class="nm">Sorteio nº ' + v.sorteio.rodada + '</div>' + muted(v.sorteio.nAtivos + ' de ' + v.sorteio.meta + ' \u00B7 ' + fmtR(v.sorteio.preco) + ' por número') + '</div>',
-      '<div class="yn sm">' + chip('Não', !vs.sim, 'vs-nao', '') + chip('Sim', vs.sim, 'vs-sim', '') + '</div>');
-    if (vs.sim && !vs.cliente) {
-      sorteio += '<div class="col">' + rotulo('vs-busca', 'Buscar cliente') + entrada('vs-busca', vs.busca, { ph: 'Nome, telefone ou e-mail' }) +
-        '<div id="vs-res" class="dc">' + htmlResVenda() + '</div>' + ghost('Cadastrar cliente novo', 'vs-novo') + '</div>';
-    } else if (vs.sim) {
-      sorteio += '<div class="col"><div class="selcli"><div><div class="nm">' + esc(vs.cliente.nome) + '</div>' + muted(vs.cliente.contato) + '</div>' + ghost('Trocar', 'vs-trocar') + '</div>' +
-        linha(lbl('Quantos números? (1 a 99)'), stepIn('vs-n-in', String(vs.n), 'Quantidade de números', 'vs-n', '-1', '1', 'Tirar um número do sorteio', 'Adicionar um número do sorteio', 56)) + '</div>';
-    }
+    var cliCard = '';
+    if (vs.cliente) {
+      var cc = vs.cliente, ch = cc.coposHoje || 0, nn2 = cc.nNumeros || 0;
+      cliCard = '<div class="selcli"><div><div class="nm">' + esc(cc.nome) + '</div>' + muted(cc.contato + ' \u00B7 ' + ch + (ch === 1 ? ' café hoje' : ' cafés hoje') + ' \u00B7 ' + nn2 + (nn2 === 1 ? ' número' : ' números')) + '</div>' + ghost('Trocar', 'vs-trocar') + '</div>';
+    } else if (vs.abrir) {
+      cliCard = lbl('Cliente') + '<div class="col">' + entrada('vs-busca', vs.busca, { ph: 'Nome, telefone ou e-mail' }) + '<div id="vs-res" class="dc">' + htmlResVenda() + '</div><div class="row2">' + ghost('Cadastrar cliente novo', 'vs-novo') + ghost('Fechar', 'vs-fechar') + '</div></div>';
+    } else {
+      cliCard = linha('<div><div class="nm">Cliente</div>' + muted('Opcional: ligue a venda a um cliente do clube.') + '</div>', ghost('Escolher cliente', 'vs-abrir'));
     }
     if (t.copos > 0 && !modoCons) {
       var dcv = descontoCents(), abertoD = S.desc.aberto;
@@ -221,7 +219,7 @@
           ((v.promocoes || []).length ? lbl('Motivo (opcional)') + '<div class="chips">' + v.promocoes.map(function (x) { return chip(x.nome, S.desc.promo === x.id, 'desc-promo', x.id); }).join('') + '</div>' : '') +
           muted('Não é uma regra do sistema: você escolhe o valor em cada venda, e o desconto fica registrado para os relatórios.') : ''));
     }
-    if (v.sorteio && !modoCons) h += card(sorteio);
+    if (!modoCons) h += card(cliCard);
     h += card(lbl('Últimas vendas de hoje') + '<div class="rows">' + v.ultimas.map(function (u) {
       return '<div class="it"><div><div class="nm">' + esc(nb(u.texto)) + '</div>' + muted(u.hora + ' \u00B7 ' + u.usuario + ' \u00B7 ' + u.forma) + '</div><div class="right"><div class="nm">' + esc(fmtR(u.total)) + '</div>' + ghost('Desfazer', 'estornar', 'venda|' + u.id) + '</div></div>';
     }).join('') + '</div>' + (v.ultimas.length ? '' : muted('Nenhuma venda registrada hoje.')));
@@ -244,7 +242,7 @@
     var dc = t.copos > 0 ? descontoCents() : 0, dcOk = !isNaN(dc) && dc <= t.cents, liquido = t.cents - (dcOk ? dc : 0);
     var bloq = v.fechado || (t.copos === 0 && !nS) || (nS && !vs.cliente) || !dcOk;
     var av = v.fechado ? 'Dia fechado. Reabra em Fechamento do dia para vender.' : (!dcOk ? 'O desconto precisa ser um valor entre R$ 0,00 e ' + fmtR(t.cents) + '.' : (t.copos > 0 && t.ml > saldo ? 'Passa do café pronto (faltam ' + fmtN(t.ml - Math.max(0, saldo)) + ' ml). Dá para registrar mesmo assim e acertar no Fechamento.' : (vs.sim && !vs.cliente ? 'Escolha o cliente dos números do sorteio.' : '')));
-    var partes = []; if (t.copos) partes.push(t.copos + (t.copos > 1 ? ' copos' : ' copo') + ' \u00B7 ' + fmtN(t.serv) + ' ml' + (t.serv !== t.ml ? ' (' + fmtN(t.ml) + ' ml de café)' : '')); if (nS) partes.push(nS + (nS === 1 ? ' número' : ' números') + ' do sorteio'); if (dcOk && dc > 0) partes.push('desconto ' + fmtR(dc)); if ((S.vendedor || S.user.id) !== S.user.id) partes.push('vendido por ' + nomeDe(v.usuarios || [], S.vendedor));
+    var partes = []; if (t.copos) partes.push(t.copos + (t.copos > 1 ? ' copos' : ' copo') + ' \u00B7 ' + fmtN(t.serv) + ' ml' + (t.serv !== t.ml ? ' (' + fmtN(t.ml) + ' ml de café)' : '')); if (nS) partes.push(nS + (nS === 1 ? ' número' : ' números') + ' do sorteio'); if (dcOk && dc > 0) partes.push('desconto ' + fmtR(dc)); if ((S.vendedor || S.user.id) !== S.user.id) partes.push('vendido por ' + nomeDe(v.usuarios || [], S.vendedor)); if (vs.cliente) partes.push('cliente ' + vs.cliente.nome);
     var f = (av ? '<div class="muted neg">' + esc(nb(av)) + '</div>' : '') +
       '<div class="chips pay">' + v.formas.map(function (x) { return chip(x.nome, S.pay === x.id, 'pay', x.id); }).join('') + (t.copos > 0 ? chip('Consumo', false, 'pay', 'consumo') : '') + '</div>' +
       '<div class="muted">' + esc(nb(partes.join(' + '))) + '</div>' +
@@ -567,6 +565,8 @@
     if (sub === 'lista') {
       h += '<div class="sec">' + card(rotulo('cli-q', 'Filtrar clientes') + entrada('cli-q', S.cli.q, { ph: 'Nome, telefone, e-mail ou número' }) + muted(v.total + (v.total === 1 ? ' cliente cadastrado' : ' clientes cadastrados') + ' \u00B7 ' + v.comNumeros + ' com números ativos') + btn('Novo cliente', 'cli-novo'), 'full') +
         '<div id="cli-res" class="dc">' + htmlResClientes(v) + '</div></div>';
+    } else if (sub === 'clube') {
+      h += telaClube(v);
     } else {
       h += telaSorteio(v);
     }
@@ -576,7 +576,7 @@
     return v.clientes.map(function (c) {
           return card(linha('<div><div class="nm">' + esc(c.nome) + '</div>' + muted(c.codigo + ' \u00B7 ' + c.telefone) + muted(c.email) + '</div>', chip(c.ativo ? 'Ativo' : 'Inativo', c.ativo, 'cli-ativo', c.id + '|' + (c.ativo ? 0 : 1))) +
             (c.numeros.length ? '<div class="numbox">' + lbl(c.numeros.length + (c.numeros.length === 1 ? ' número ativo' : ' números ativos')) + '<div class="mono' + (S.cli0.todos[c.id] ? ' cols' : '') + '">' + esc(linhasNum(S.cli0.todos[c.id] || c.numeros.length <= 5 ? c.numeros : c.numeros.slice(0, 5))) + '</div>' + (c.numeros.length > 5 ? ghost(S.cli0.todos[c.id] ? 'Mostrar menos' : 'Ver todos os ' + c.numeros.length, 'cli-todos', c.id) : '') + '</div>' : muted('Nenhum número ativo')) +
-            '<div class="row2">' + btn('Vender números', 'cli-vender', c.id, { dis: !c.ativo }) + ghost('Editar dados', 'cli-editar', c.id) + '</div>');
+            '<div class="row2">' + btn('Vender', 'cli-vender', c.id, { dis: !c.ativo }) + ghost('Dar número', 'cli-dar', c.id) + ghost('Editar dados', 'cli-editar', c.id) + '</div>');
     }).join('') + (v.encontrados > v.mostrando ? muted('Mostrando ' + v.mostrando + ' de ' + v.encontrados + ': use o filtro para achar os outros.') : '') +
       (v.clientes.length ? '' : card(muted(v.total === 0 ? 'Nenhum cliente cadastrado ainda. Toque em "Novo cliente".' : 'Nenhum cliente encontrado para esse filtro.')));
   }
@@ -584,13 +584,40 @@
     return '<div class="rows">' + v.conferir.map(function (x) { return '<div class="it"><div><div class="nm">' + esc(nb(x.titulo)) + '</div>' + muted(x.dono) + '</div><span class="tag ' + (x.ativo ? 'okk' : '') + '">' + (x.ativo ? 'ATIVO' : 'SORTEIO ' + x.rodada) + '</span></div>'; }).join('') + '</div>' +
       (v.conferir.length ? '' : muted(v.conferiu ? 'Nenhum número com esse valor.' : 'Digite o número ou o código sorteado para ver de quem é.'));
   }
+  function htmlClubeLista(v) {
+    return v.clientes.map(function (c) {
+      return '<button type="button" class="mrow" data-a="cli-abrir" data-v="' + esc(c.id) + '"><div><div class="pn">' + esc(c.nome) + (c.ativo ? '' : ' (inativo)') + '</div>' + muted(c.copos ? c.copos + (c.copos === 1 ? ' copo' : ' copos') + ' \u00B7 ' + fmtR(c.fat) + (c.favorito ? ' \u00B7 ' + c.favorito : '') + (c.ultima ? ' \u00B7 últ. ' + c.ultima : '') : 'Ainda sem compras ligadas a ele') + '</div>' +
+        (c.numeros ? '<span class="tag okk">' + c.numeros + (c.numeros === 1 ? ' nº' : ' nºs') + '</span>' : '') + '<span class="chev">\u203A</span></button>';
+    }).join('') + (v.encontrados > v.mostrando ? muted('Mostrando ' + v.mostrando + ' de ' + v.encontrados + ': use o filtro para achar os outros.') : '') +
+      (v.clientes.length ? '' : card(muted(v.total === 0 ? 'Nenhum cliente cadastrado ainda. Cadastre em Clientes.' : 'Nenhum cliente encontrado para esse filtro.')));
+  }
+  function telaClube(v) {
+    if (v.detalhe) return telaClienteDetalhe(v.detalhe);
+    return '<div class="sec">' + card(rotulo('cli-q', 'Filtrar por nome') + entrada('cli-q', S.cli.q, { ph: 'Nome do cliente' }) +
+      muted(v.comCompra + ' de ' + v.total + (v.total === 1 ? ' cliente tem' : ' clientes têm') + ' compras ligadas a ele \u00B7 ' + v.pctCopos + '% dos copos vendidos foram para clientes do clube. Ligue o cliente na tela de Venda para acompanhar o que cada um compra. Quem toma ' + v.minimo + ' cafés no dia pode ganhar um número do sorteio (quem dá o número é você).'), 'full') +
+      '<div id="clube-res" class="list full">' + htmlClubeLista(v) + '</div></div>';
+  }
+  function telaClienteDetalhe(d) {
+    var motivo = S.cli.motivo != null ? S.cli.motivo : d.motivo, ativos = d.numeros.filter(function (n) { return n.ativo; }).length;
+    var h = card(linha('<div><div class="nm">' + esc(d.nome) + '</div>' + muted(d.contato + ' \u00B7 ' + d.email) + '</div>', ghost('Voltar ao clube', 'cli-fechar')), 'full') +
+      tiles([{ lbl: 'Copos', val: String(d.copos) }, { lbl: 'Faturamento', val: fmtR(d.fat) }, { lbl: 'Dias que veio', val: String(d.nDias) }, { lbl: 'Média por dia', val: fmtN(d.media) + ' copos' }, { lbl: 'Com desconto', val: d.comDesconto + (d.comDesconto === 1 ? ' venda' : ' vendas') }, { lbl: 'Última vez', val: d.ultima || '\u2014' }]) +
+      card(lbl('Café preferido') + (d.favorito ? '<div class="nm">' + esc(nb(d.favorito)) + '</div>' : muted('Sem compras ligadas a ele ainda.')) + (d.desde ? muted('Cliente desde ' + d.desde) : '')) +
+      card(rotulo('cli-motivo', 'Por que compra, o que gosta') + entrada('cli-motivo', motivo, { ph: 'Ex.: toma de manhã, gosta com canela' }) + btn('Salvar anotação', 'cli-motivo-salvar', null, { dis: S.ocupado || String(motivo).trim() === d.motivo })) +
+      card(lbl('O que mais compra') + barras(d.porProduto) + (d.porProduto.length ? '' : muted('Sem dados ainda.'))) +
+      card(lbl('Dias da semana (copos)') + barras(d.porSemana)) +
+      card(lbl('Últimas compras') + '<div class="rows">' + d.ultimas.map(function (u) { return '<div class="it"><div><div class="nm">' + esc(nb(u.texto)) + '</div>' + muted(u.quando) + '</div><div class="nm">' + esc(fmtR(u.valor)) + '</div></div>'; }).join('') + '</div>' + (d.ultimas.length ? '' : muted('Nenhuma compra ligada a ele ainda.'))) +
+      card(linha(lbl('Números do sorteio (' + ativos + ' ativos)'), ghost('Dar número', 'cli-dar-det')) + muted('Hoje: ' + d.coposHoje + ' de ' + d.minimo + ' cafés para ganhar um número.') + '<div class="rows">' + d.numeros.map(function (n) {
+        return '<div class="it"><div><div class="nm' + (n.ativo ? '' : ' struck') + '">' + esc('Nº ' + pad4(n.numero) + ' \u00B7 código ' + n.token) + '</div>' + muted(n.quando + ' \u00B7 ' + n.motivo) + '</div>' + (n.podeCancelar ? ghost('Cancelar', 'num-cancelar', n.id) : '') + '</div>';
+      }).join('') + '</div>' + (d.numeros.length ? '' : muted('Nenhum número ainda.')));
+    return '<div class="sec">' + h + '</div>';
+  }
   function telaSorteio(v) {
     var prog = Math.max(2, Math.min(100, Math.round(v.nAtivos / v.meta * 100))), falta = Math.max(0, v.meta - v.nAtivos);
-    return '<div class="sec">' + card(lbl('Sorteio atual: nº ' + v.rodadaAtual) + '<div class="row"><div class="mid">' + esc(nb(v.nAtivos + ' de ' + v.meta + ' números vendidos')) + '</div></div><div class="bar"><i style="width:' + prog + '%"></i></div>' +
+    return '<div class="sec">' + card(lbl('Sorteio atual: nº ' + v.rodadaAtual) + '<div class="row"><div class="mid">' + esc(nb(v.nAtivos + ' de ' + v.meta + ' números')) + '</div></div><div class="bar"><i style="width:' + prog + '%"></i></div>' +
       '<div class="nm">' + esc(v.liberado ? 'Meta atingida: faça o sorteio e depois toque em Novo sorteio.' : 'Faltam ' + falta + (falta === 1 ? ' número' : ' números') + ' para o sorteio.') + '</div>' + muted(v.nAtivos + (v.nAtivos === 1 ? ' número' : ' números') + ' de ' + v.nClientes + (v.nClientes === 1 ? ' cliente' : ' clientes') + ' neste sorteio'), v.liberado ? 'ok' : '') +
       card(rotulo('nq-busca', 'Conferir número sorteado') + entrada('nq-busca', S.cli.nq, { ph: 'Número ou código (ex.: 0472)', modo: 'numeric' }) + '<div id="nq-res" class="dc">' + htmlResNq(v) + '</div>') +
       card(lbl('Regras do sorteio') + campo('cfg|sorteio', 'meta', 'Sorteio a cada', v.meta, 'números') +
-        campo('cfg|sorteio', 'preco', 'Preço de cada número', v.preco / 100, 'R$', function (x) { return moedaTxt(Math.round(x * 100)); }) + barraSalvar('cfg|sorteio', 'cfg-salvar', null) + muted('O sorteio é liberado quando os números vendidos chegam à meta. O preço (valor de exemplo) vale para as próximas vendas; números já vendidos guardam o valor da hora.')) +
+        barraSalvar('cfg|sorteio', 'cfg-salvar', null) + muted('Os números não têm preço: quem dá o número é você, para o cliente que faz algo especial (hoje, tomar ' + v.minimoClube + ' cafés no dia). O sorteio é liberado quando os números chegam à meta.')) +
       card(lbl('Depois de sortear') + muted('O sorteio é feito fora do sistema. Depois, toque em Novo sorteio: este sorteio é encerrado (os números ficam guardados nele) e começa outro do zero. Os cadastros dos clientes ficam.') +
         btn('Novo sorteio', 'ns-pedir', null, { dis: v.nAtivos === 0 }) +
         (S.novoSorteio && v.nAtivos ? card('<div class="nm">' + esc(nb('Encerrar o sorteio nº ' + v.rodadaAtual + ' e começar o nº ' + (v.rodadaAtual + 1) + '? Os ' + v.nAtivos + (v.nAtivos === 1 ? ' número' : ' números') + ' de ' + v.nClientes + (v.nClientes === 1 ? ' cliente ficam guardados' : ' clientes ficam guardados') + ' no sorteio nº ' + v.rodadaAtual + '. No novo só entram números novos.' + (v.liberado ? '' : ' Ainda faltam ' + falta + ' números para a meta de ' + v.meta + '.'))) + '</div>' + linha(ghost('Cancelar', 'ns-nao'), ghost('Confirmar', 'ns-sim')), 'warn') : '')) +
@@ -688,13 +715,13 @@
       chamar('ver', q).then(function (r) {
         if (n !== seqBusca || !r.ok || S.tela !== 'clientes') return;
         guardarVista(q, r);
-        var ok = q.sub === 'sorteio' ? parcial('nq-res', htmlResNq(r)) : parcial('cli-res', htmlResClientes(r));
+        var ok = q.sub === 'sorteio' ? parcial('nq-res', htmlResNq(r)) : q.sub === 'clube' ? (!r.detalhe && parcial('clube-res', htmlClubeLista(r))) : parcial('cli-res', htmlResClientes(r));
         if (!ok) render();
       }).catch(function () { });
     }, 250);
   }
   function irTela(t) { S.tela = t; S.msg = null; carregar(); }
-  function restaurarVenda(c) { S.tela = 'venda'; S.vs.sim = true; S.vs.cliente = c; S.vs.busca = ''; S.vs.res = []; S.vs.n = Math.max(1, S.vs.n); carregar(); }
+  function restaurarVenda(c) { S.tela = 'venda'; S.vs.cliente = c; S.vs.abrir = false; S.vs.busca = ''; S.vs.res = []; carregar(); }
 
   function definirEmbalagens(n) {
     var m = V().materiais.filter(function (x) { return x.id === S.compra.mat; })[0];
@@ -708,7 +735,7 @@
   }
   var ACOES = {
     'ir': function (v) { irTela(v); },
-    'sub': function (v) { S.sub[S.tela] = v; S.msg = null; carregar(); },
+    'sub': function (v) { S.sub[S.tela] = v; if (S.tela === 'clientes') { S.cli.det = null; S.cli.motivo = null; } S.msg = null; carregar(); },
     'sair': function () { sair(); },
     'msg-ok': function () { S.msg = null; render(); },
     'ticket-ok': function () { S.ticket = null; render(); },
@@ -730,8 +757,12 @@
     'vs-sim': function () { S.vs.sim = true; S.vs.n = Math.max(1, S.vs.n); render(); },
     'vs-nao': function () { S.vs = { sim: false, n: 1, cliente: null, busca: '', res: [], total: 0, ativa: false }; render(); },
     'vs-n': function (v) { S.vs.n = Math.max(1, Math.min(99, S.vs.n + Number(v))); render(); },
-    'vs-pick': function (v) { var c = S.vs.res[Number(v)]; if (c) { S.vs.cliente = c; S.vs.busca = ''; S.vs.res = []; S.vs.ativa = false; } render(); },
-    'vs-trocar': function () { S.vs.cliente = null; S.vs.busca = ''; S.vs.res = []; S.vs.ativa = false; render(); },
+    'vs-pick': function (v) { var c = S.vs.res[Number(v)]; if (c) { S.vs.cliente = c; S.vs.busca = ''; S.vs.res = []; S.vs.ativa = false; S.vs.abrir = false; chamar('cliente.mascarado', { id: c.id }).then(function (m) { if (m.ok && m.cliente && S.vs.cliente && S.vs.cliente.id === c.id) { S.vs.cliente = m.cliente; render(); } }).catch(function () { }); } render(); },
+    'vs-trocar': function () { S.vs.cliente = null; S.vs.busca = ''; S.vs.res = []; S.vs.ativa = false; S.vs.abrir = true; render(); },
+    'vs-abrir': function () { S.vs.abrir = true; render(); },
+    'vs-fechar': function () { S.vs.abrir = false; S.vs.busca = ''; S.vs.res = []; S.vs.ativa = false; render(); },
+    'num-dar': function () { var s = S.sug; if (!s) return; agir('numero.dar', { id: idDe('numero'), cliente_id: s.cliente_id, motivo: 'Clube: ' + s.copos + ' cafés no dia' }, { depois: function (r) { limparId('numero'); S.ticket = r.ticket || null; S.sug = null; } }); },
+    'num-nao': function () { S.sug = null; render(); },
     'vs-novo': function () { S.cli.form = { id: '', nome: '', tel: '', email: '', volta: 'venda' }; S.tela = 'clientes'; S.sub.clientes = 'form'; S.msg = null; render(); },
     'venda-ok': function () {
       var itens = {}; Object.keys(S.cart).forEach(function (k) { if (S.cart[k] > 0) itens[k] = S.cart[k]; });
@@ -739,8 +770,8 @@
         agir('consumo.registrar', { id: idDe('consumo'), itens: itens, consumidor_id: S.consumidor || S.user.id, sem_copo: S.semCopo }, { depois: function (r) { limparId('consumo'); S.cart = {}; S.consumidor = null; S.semCopo = false; S.pay = V().formas[0].id; if (r.passou && S.msg) S.msg.erro = true; } });
         return;
       }
-      agir('venda.registrar', { id: idDe('venda'), itens: itens, vendedor_id: S.vendedor || S.user.id, forma_pagamento_id: S.pay, desconto_centavos: Object.keys(itens).length ? (descontoCents() || 0) : 0, promocao_id: S.desc.promo, sorteio: S.vs.sim ? { cliente_id: S.vs.cliente && S.vs.cliente.id, n: S.vs.n } : null },
-        { depois: function (r) { limparId('venda'); S.desc = { aberto: false, txt: '', promo: null }; S.cart = {}; S.vs = { sim: false, n: 1, cliente: null, busca: '', res: [], total: 0, ativa: false }; S.ticket = r.ticket || null; if (r.passou) S.msg.erro = true; } });
+      agir('venda.registrar', { id: idDe('venda'), itens: itens, vendedor_id: S.vendedor || S.user.id, forma_pagamento_id: S.pay, desconto_centavos: Object.keys(itens).length ? (descontoCents() || 0) : 0, promocao_id: S.desc.promo, cliente_id: S.vs.cliente ? S.vs.cliente.id : null },
+        { depois: function (r) { limparId('venda'); S.desc = { aberto: false, txt: '', promo: null }; S.cart = {}; S.vs = { sim: false, n: 1, cliente: null, busca: '', res: [], total: 0, ativa: false, abrir: false }; S.ticket = r.ticket || null; S.sug = r.sugestao || null; if (r.passou) S.msg.erro = true; } });
     },
     /* preparo */
     'prep-litros': function (v) { S.prep.litros = Math.max(0.5, Math.min(10, S.prep.litros + Number(v))); S.prep.aj = {}; S.prep.ajTxt = {}; render(); },
@@ -858,9 +889,9 @@
       agir('composicao.salvar', { variante_id: id, canela_g: canela, copo_material_id: S.rd[rdChave(g, 'copo')] || c.copoId }, { depois: function () { rdLimpar(g); } });
     },
     'cfg-salvar': function () {
-      var v = V(), g = 'cfg|sorteio', meta = rdNum(g, 'meta', v.meta), reais = rdNum(g, 'preco', v.preco / 100);
-      if (isNaN(meta) || isNaN(reais)) { aviso('Confira os números do sorteio.', true); render(); return; }
-      agir('config.salvar', { itens: { 'sorteio.meta_numeros': meta, 'sorteio.preco_numero_centavos': Math.round(reais * 100) } }, { depois: function () { rdLimpar(g); } });
+      var v = V(), g = 'cfg|sorteio', meta = rdNum(g, 'meta', v.meta);
+      if (isNaN(meta)) { aviso('Confira os números do sorteio.', true); render(); return; }
+      agir('config.salvar', { itens: { 'sorteio.meta_numeros': meta } }, { depois: function () { rdLimpar(g); } });
     },
     'rec-escopo': function (v) { S.rec = v; render(); },
     'rec-base': function (v) { S.recBase = v; render(); },
@@ -887,12 +918,18 @@
         semVista: true,
         depois: function (r) {
           limparId('cliente'); S.cli.form = null; S.sub.clientes = 'lista';
-          if (volta === 'venda') { chamar('cliente.mascarado', { id: r.cliente_id }).then(function (m) { if (m.ok && m.cliente) { restaurarVenda(m.cliente); aviso(r.msg + ' Agora escolha quantos números.', false); render(); } }); }
+          if (volta === 'venda') { chamar('cliente.mascarado', { id: r.cliente_id }).then(function (m) { if (m.ok && m.cliente) { restaurarVenda(m.cliente); aviso(r.msg + ' Cliente ligado à venda.', false); render(); } }); }
           else carregar();
         }
       });
     },
     'cli-todos': function (v) { S.cli0.todos[v] = !S.cli0.todos[v]; var el = document.getElementById('cli-res'); if (el && V()) { el.innerHTML = fixNb(htmlResClientes(V())); } else render(); },
+    'cli-abrir': function (v) { S.cli.det = v; S.cli.motivo = null; carregar(); },
+    'cli-fechar': function () { S.cli.det = null; S.cli.motivo = null; carregar(); },
+    'cli-motivo-salvar': function () { agir('cliente.motivo', { id: S.cli.det, motivo: S.cli.motivo }, { depois: function () { S.cli.motivo = null; } }); },
+    'cli-dar': function (v) { agir('numero.dar', { id: idDe('numero'), cliente_id: v, motivo: 'Dado à mão' }, { depois: function () { limparId('numero'); } }); },
+    'cli-dar-det': function () { agir('numero.dar', { id: idDe('numero'), cliente_id: S.cli.det, motivo: 'Dado à mão' }, { depois: function () { limparId('numero'); } }); },
+    'num-cancelar': function (v) { agir('numero.cancelar', { id: v }); },
     'cli-ativo': function (v) { var p = par(v); agir('cliente.ativo', { id: p[0], ativo: p[1] === '1' }); },
     'cli-vender': function (v) { var c = V().clientes.filter(function (x) { return x.id === v; })[0]; chamar('cliente.mascarado', { id: c.id }).then(function (m) { if (m.ok && m.cliente) { restaurarVenda(m.cliente); } }); },
     'ns-pedir': function () { S.novoSorteio = true; render(); },
@@ -914,6 +951,7 @@
   var ENTRADAS = {
     'vs-busca': function (v) { S.vs.busca = v; buscarClienteVenda(); },
     'cli-q': function (v) { S.cli.q = v; recarregarClientes(); },
+    'cli-motivo': function (v) { S.cli.motivo = v; var b = document.querySelector('[data-a="cli-motivo-salvar"]'); var d = V() && V().detalhe; if (b && d) b.disabled = String(v).trim() === d.motivo; },
     'nq-busca': function (v) { S.cli.nq = v; recarregarClientes(); },
     'cli-nome': function (v) { S.cli.form.nome = v; }, 'cli-tel': function (v) { S.cli.form.tel = v; }, 'cli-email': function (v) { S.cli.form.email = v; },
     'nm-nome': function (v) { S.nm.nome = v; },

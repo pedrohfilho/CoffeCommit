@@ -30,7 +30,7 @@ function ver_(db, ctx, q) {
     case 'paineis': return q.sub === 'dias' ? viewDias_(db, ctx, q.mes, q.pessoa) : viewPaineis_(db, ctx, q.sub || 'geral', q.periodo || 'tudo', q.pessoa);
     case 'cadastros': return viewCadastros_(db, ctx, q.sub || 'materiais');
     case 'financeiro': return viewFinanceiro_(db, ctx, q.sub || 'resultado');
-    case 'clientes': return viewClientes_(db, ctx, q.sub || 'lista', q.q || '');
+    case 'clientes': return viewClientes_(db, ctx, q.sub || 'lista', q.q || '', q.cid);
     case 'historico': return viewHistorico_(db, ctx);
     case 'sistema': return viewSistema_(db, ctx);
     case 'mais': return {};
@@ -106,7 +106,9 @@ function buscarClientesVenda_(db, ctx, p) {
 }
 function clienteMascarado_(db, ctx, p) {
   var c = mapa_(db, 'cliente')[p.id];
-  return c ? { id: c.id, nome: c.nome, contato: maskTel_(c.telefone) } : null;
+  if (!c) return null;
+  var dia = ctx.agora.diaLocal, est = estadoSorteio_(db, ctx.agora.dataHora);
+  return { id: c.id, nome: c.nome, contato: maskTel_(c.telefone), coposHoje: coposDoClienteNoDia_(db, c.id, dia), nNumeros: est.validos.filter(function (n) { return n.cliente_id === c.id; }).length, minimo: cfgInt_(db, 'clube.copos_para_numero', 2, ctx.agora.dataHora) };
 }
 
 /* ---------------- Preparo ---------------- */
@@ -447,7 +449,35 @@ function viewFinanceiro_(db, ctx, sub) {
 }
 
 /* ---------------- Clientes e sorteio ---------------- */
-function viewClientes_(db, ctx, sub, q) {
+/* clube: o que cada cliente comprou, só das vendas ligadas a ele (venda desfeita não conta) */
+function analiseClientes_(db, ctx) {
+  var cli = mapa_(db, 'cliente'), vars = mapa_(db, 'produto_variante'), prods = mapa_(db, 'produto'), ipv = itensPorVenda_(db), por = {};
+  db.t('venda').forEach(function (v) {
+    if (v.status !== 'ATIVO' || !v.cliente_id || !cli[v.cliente_id]) return;
+    var a = por[v.cliente_id] = por[v.cliente_id] || { copos: 0, fat: 0, vendas: [], produtos: {}, semana: {}, dias: {}, comDesconto: 0 };
+    a.copos += v.copos; a.fat += v.total_cafe_centavos + v.total_sorteio_centavos; a.vendas.push(v); a.dias[v.dia_local] = true; if (v.desconto_centavos > 0) a.comDesconto++;
+    var w = new Date(v.dia_local + 'T00:00:00Z').getUTCDay(); a.semana[w] = (a.semana[w] || 0) + v.copos;
+    (ipv.itens[v.id] || []).forEach(function (i) { var vr = vars[i.variante_id], nome = prods[vr.produto_id].nome.replace('Café ', '') + ' ' + (i.tamanho_ml != null ? i.tamanho_ml : vr.tamanho_ml) + ' ml'; a.produtos[nome] = (a.produtos[nome] || 0) + i.qtd; });
+  });
+  return { por: por, cli: cli, ipv: ipv };
+}
+function favoritoDe_(produtos) {
+  var ks = Object.keys(produtos).sort(function (a, b) { return produtos[b] - produtos[a] || (a < b ? -1 : 1); });
+  return ks.length ? { nome: ks[0], qtd: produtos[ks[0]] } : null;
+}
+function diaBr_(d) { return d ? d.slice(8) + '/' + d.slice(5, 7) + '/' + d.slice(0, 4) : ''; }
+function detalheCliente_(db, ctx, an, cid, est) {
+  var c = an.cli[cid]; if (!c) return null;
+  var a = an.por[cid] || { copos: 0, fat: 0, vendas: [], produtos: {}, semana: {}, dias: {}, comDesconto: 0 }, dias = Object.keys(a.dias).sort(), nomes = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  var prodL = Object.keys(a.produtos).map(function (k) { return { lbl: k, n: a.produtos[k] }; }).sort(function (x, y) { return y.n - x.n; });
+  var semL = nomes.map(function (n, i) { return { lbl: n, n: a.semana[i] || 0 }; });
+  var ult = a.vendas.slice().sort(function (x, y) { return x.data_hora < y.data_hora ? 1 : -1; }).slice(0, 8).map(function (v) { return { quando: dm_(v.data_hora), texto: textoVenda_(v, an.ipv), valor: v.total_cafe_centavos + v.total_sorteio_centavos }; });
+  var nums = db.t('numero_sorteio').filter(function (n) { return n.cliente_id === cid; }).sort(function (x, y) { return y.numero - x.numero; }).map(function (n) { return { id: n.id, numero: n.numero, token: n.token, quando: dm_(n.criado_em), motivo: n.motivo || (n.venda_id ? 'Comprado' : 'Dado pelo clube'), ativo: n.status === 'ATIVO', podeCancelar: n.status === 'ATIVO' && !n.venda_id }; });
+  var fav = favoritoDe_(a.produtos);
+  return { id: c.id, nome: c.nome, contato: fmtTel_(c.telefone), email: c.email, ativo: c.ativo, motivo: c.motivo || '', copos: a.copos, fat: a.fat, nVendas: a.vendas.length, nDias: dias.length, desde: diaBr_(dias[0]), ultima: diaBr_(dias[dias.length - 1]), media: dias.length ? r3_(a.copos / dias.length) : 0, comDesconto: a.comDesconto, favorito: fav ? fav.nome : null,
+    porProduto: barras_(prodL, nCopos_), porSemana: barras_(semL, nCopos_), ultimas: ult, numeros: nums, coposHoje: coposDoClienteNoDia_(db, cid, ctx.agora.diaLocal), minimo: cfgInt_(db, 'clube.copos_para_numero', 2, ctx.agora.dataHora) };
+}
+function viewClientes_(db, ctx, sub, q, cid) {
   var ts = ctx.agora.dataHora, est = estadoSorteio_(db, ts), ativosPor = {};
   est.ativos.forEach(function (n) { (ativosPor[n.cliente_id] = ativosPor[n.cliente_id] || []).push(n); });
   var nClientesComNum = Object.keys(ativosPor).length;
@@ -463,9 +493,19 @@ function viewClientes_(db, ctx, sub, q) {
     }
     var us = mapa_(db, 'usuario'), enc = est.encerrados.slice().reverse();
     return {
-      sub: sub, rodadaAtual: est.rodadaAtual, meta: est.meta, preco: est.preco, liberado: est.liberado, nAtivos: est.nAtivos, nClientes: nClientesComNum, conferir: achados, conferiu: nqd.length > 0,
+      sub: sub, rodadaAtual: est.rodadaAtual, meta: est.meta, preco: est.preco, minimoClube: cfgInt_(db, 'clube.copos_para_numero', 2, ts), liberado: est.liberado, nAtivos: est.nAtivos, nClientes: nClientesComNum, conferir: achados, conferiu: nqd.length > 0,
       historico: enc.map(function (d, i) { return { id: d.id, texto: nb_('Sorteio n\u00BA ' + d.rodada + ' encerrado \u00B7 ' + d.qtd_numeros + (d.qtd_numeros === 1 ? ' n\u00FAmero' : ' n\u00FAmeros')), meta: dm_(d.encerrado_em) + ' \u00B7 por ' + nomeDe_(us, d.encerrado_por), podeDesfazer: i === 0 }; })
     };
+  }
+  if (sub === 'clube') {
+    var an = analiseClientes_(db, ctx), numPor = {}, filtro = String(q || '').trim().toLowerCase();
+    est.validos.forEach(function (n) { numPor[n.cliente_id] = (numPor[n.cliente_id] || 0) + 1; });
+    var lista = db.t('cliente').filter(function (c) { return !filtro || c.nome.toLowerCase().indexOf(filtro) >= 0; }).map(function (c) {
+      var a = an.por[c.id], fav = a ? favoritoDe_(a.produtos) : null, dias = a ? Object.keys(a.dias).sort() : [];
+      return { id: c.id, nome: c.nome, ativo: c.ativo, copos: a ? a.copos : 0, fat: a ? a.fat : 0, nVendas: a ? a.vendas.length : 0, ultima: dias.length ? diaBr_(dias[dias.length - 1]).slice(0, 5) : '', favorito: fav ? fav.nome : null, numeros: numPor[c.id] || 0, temMotivo: !!c.motivo };
+    }).sort(function (x, y) { return y.copos - x.copos || x.nome.localeCompare(y.nome, 'pt-BR'); });
+    var coposTodos = soma_(db.t('venda').filter(function (v) { return v.status === 'ATIVO'; }), function (v) { return v.copos; }), coposCli = soma_(lista, function (x) { return x.copos; });
+    return { sub: sub, total: db.t('cliente').length, comCompra: lista.filter(function (x) { return x.copos > 0; }).length, coposClientes: coposCli, coposTodos: coposTodos, pctCopos: coposTodos ? Math.round(coposCli / coposTodos * 100) : 0, minimo: cfgInt_(db, 'clube.copos_para_numero', 2, ts), encontrados: lista.length, mostrando: Math.min(lista.length, 60), clientes: lista.slice(0, 60), detalhe: cid ? detalheCliente_(db, ctx, an, cid, est) : null };
   }
   var f = filtrarClientes_(db, q), base = f.ativa ? f.lista : db.t('cliente');
   var ord = base.slice().sort(function (a, b) { return a.nome.localeCompare(b.nome, 'pt-BR'); });

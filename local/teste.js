@@ -645,7 +645,7 @@ grupo('DDL do MySQL e exportação');
   const pasta = T.amb.drive.pastas[0];
   ok(/drive/.test(url) && pasta.arquivos.length === 34 && pasta.arquivos.some((a) => a.nome === 'schema.sql'), '33 CSVs + schema.sql na pasta', pasta.arquivos.length);
   const csv = pasta.arquivos.find((a) => a.nome === 'numero_sorteio.csv').conteudo.split('\n');
-  ok(csv[0] === 'id,numero,token,cliente_id,venda_id,sorteio_id,valor_centavos,criado_em,status' && /,0453,/.test(csv[1]), 'CSV com cabeçalho na ordem do esquema e token preservado', csv.slice(0, 2));
+  ok(csv[0] === 'id,numero,token,cliente_id,venda_id,sorteio_id,valor_centavos,criado_em,status,motivo,criado_por' && /,0453,/.test(csv[1]), 'CSV com cabeçalho na ordem do esquema e token preservado', csv.slice(0, 2));
   ok(T.ctx.csvCampo_('a,"b"') === '"a,""b"""' && T.ctx.csvCampo_(true) === '1' && T.ctx.csvCampo_(null) === '', 'escape de CSV');
 }
 
@@ -1444,6 +1444,74 @@ grupo('quem vendeu: vendedor, copo e painéis por pessoa');
   T3.ctx.instalarPlanilha_(T3.ss, new Date().toISOString());
   const vs = new T3.ctx.Banco(T3.ss, { semCache: true }).t('venda');
   ok(vs.length === 5 && vs.every((x) => x.vendedor_id === x.usuario_id) && T3.ch(T3.pedro, 'sistema.auditar').limpo, 'planilha antiga: o vendedor das vendas existentes é quem registrou, e a auditoria segue limpa', vs.map((x) => x.vendedor_id));
+}
+
+grupo('clube: cliente em qualquer venda, número dado e análise por cliente');
+{
+  const T = iniciar({ exemplos: true });
+  const vc = (itens, cid, extra) => T.ch(T.pedro, 'venda.registrar', Object.assign({ id: T.uid(), itens: itens, forma_pagamento_id: 'fp-pix', cliente_id: cid }, extra || {}));
+  const nums0 = T.db().t('numero_sorteio').length;
+  ok(T.ch(T.pedro, 'cliente.salvar', { novo_id: 'cli-paulo-teste', nome: 'Paulo (teste)', telefone: '71900000009', email: 'paulo.teste@gmail.com' }).ok, 'cliente novo, sem nenhum café hoje');
+  const r1 = vc({ 'var-n50': 1 }, 'cli-paulo-teste');
+  ok(r1.ok && T.db().t('venda').slice(-1)[0].cliente_id === 'cli-paulo-teste' && T.db().t('numero_sorteio').length === nums0 && r1.sugestao === null, 'cliente ligado a uma venda comum, sem números e sem sugestão com 1 café');
+  const r2 = vc({ 'var-n50': 1 }, 'cli-paulo-teste');
+  ok(r2.ok && r2.sugestao && r2.sugestao.nome === 'Paulo (teste)' && r2.sugestao.copos === 2 && r2.sugestao.min === 2, 'no 2º café do dia o sistema sugere dar um número', r2.sugestao);
+  ok(/inválido/.test(vc({ 'var-n50': 1 }, 'cli-fantasma').erro), 'cliente que não existe é recusado');
+  T.ch(T.pedro, 'cliente.ativo', { id: 'cli-maria-exemplo', ativo: false });
+  ok(/inativo/.test(vc({ 'var-n50': 1 }, 'cli-maria-exemplo').erro), 'cliente inativo é recusado');
+  // dar o número (sem venda, sem valor)
+  const nid = T.uid(), est0 = T.ctx.estadoSorteio_(T.db(), T.ctx.AGORA_TESTE().dataHora).nAtivos;
+  const d = T.ch(T.pedro, 'numero.dar', { id: nid, cliente_id: 'cli-joao-exemplo', motivo: 'Clube: 2 cafés no dia' });
+  const n = T.db().achar('numero_sorteio', nid);
+  ok(d.ok && n.venda_id === null && n.valor_centavos === 0 && n.status === 'ATIVO' && n.motivo === 'Clube: 2 cafés no dia' && n.criado_por === 'usr-pedro' && /^\d{4}$/.test(n.token) && d.ticket.numeros[0].numero === n.numero, 'número dado ao cliente: sem venda, sem valor, com motivo e quem deu', n);
+  ok(T.ctx.estadoSorteio_(T.db(), T.ctx.AGORA_TESTE().dataHora).nAtivos === est0 + 1, 'o número conta no sorteio atual');
+  const rep = T.ch(T.pedro, 'numero.dar', { id: nid, cliente_id: 'cli-joao-exemplo' });
+  ok(rep.ok && rep.repetido && T.db().t('numero_sorteio').filter((x) => x.id === nid).length === 1, 'reenvio do mesmo toque não dá número em dobro');
+  ok(/inválido/.test(T.ch(T.pedro, 'numero.dar', { id: T.uid(), cliente_id: 'cli-fantasma' }).erro) && /inativo/.test(T.ch(T.pedro, 'numero.dar', { id: T.uid(), cliente_id: 'cli-maria-exemplo' }).erro), 'não dá número a cliente inexistente ou inativo');
+  ok(vc({ 'var-n50': 1 }, 'cli-joao-exemplo').sugestao === null, 'depois de dar o número do dia, a sugestão não repete');
+  // cancelar: só número dado, nunca o de venda
+  const dos = T.ch(T.pedro, 'numero.dar', { id: T.uid(), cliente_id: 'cli-joao-exemplo' });
+  const idDoOutro = T.db().t('numero_sorteio').slice(-1)[0].id;
+  ok(T.ch(T.pedro, 'numero.cancelar', { id: idDoOutro }).ok && T.db().achar('numero_sorteio', idDoOutro).status === 'ESTORNADO' && /já foi cancelado/.test(T.ch(T.pedro, 'numero.cancelar', { id: idDoOutro }).erro), 'cancelar um número dado (e não cancela duas vezes)');
+  const idVenda = T.db().t('numero_sorteio').find((x) => x.venda_id).id;
+  ok(/desfaça a venda/.test(T.ch(T.pedro, 'numero.cancelar', { id: idVenda }).erro), 'número que veio de venda só sai desfazendo a venda');
+  // anotação
+  ok(T.ch(T.pedro, 'cliente.motivo', { id: 'cli-joao-exemplo', motivo: '  Gosta do café com canela, toma de manhã  ' }).ok && T.db().achar('cliente', 'cli-joao-exemplo').motivo === 'Gosta do café com canela, toma de manhã', 'anotação do por que compra é salva (sem espaços nas pontas)');
+  ok(/300 letras/.test(T.ch(T.pedro, 'cliente.motivo', { id: 'cli-joao-exemplo', motivo: 'x'.repeat(301) }).erro) && /não encontrado/.test(T.ch(T.pedro, 'cliente.motivo', { id: 'cli-fantasma', motivo: 'a' }).erro), 'anotação grande demais ou de cliente inexistente é recusada');
+  // regra do clube configurável
+  ok(T.ch(T.pedro, 'config.salvar', { chave: 'clube.copos_para_numero', valor: 3 }).ok && /entre 1 e 20/.test(T.ch(T.pedro, 'config.salvar', { chave: 'clube.copos_para_numero', valor: 0 }).erro), 'a regra (cafés no dia) é configurável de 1 a 20');
+  const T2 = iniciar({ exemplos: true });
+  T2.ch(T2.pedro, 'config.salvar', { chave: 'clube.copos_para_numero', valor: 3 });
+  T2.ch(T2.pedro, 'cliente.salvar', { novo_id: 'cli-paulo-teste', nome: 'Paulo (teste)', telefone: '71900000009', email: 'paulo.teste@gmail.com' });
+  const a1 = T2.ch(T2.pedro, 'venda.registrar', { id: T2.uid(), itens: { 'var-n50': 2 }, forma_pagamento_id: 'fp-pix', cliente_id: 'cli-paulo-teste' }), a2 = T2.ch(T2.pedro, 'venda.registrar', { id: T2.uid(), itens: { 'var-n50': 1 }, forma_pagamento_id: 'fp-pix', cliente_id: 'cli-paulo-teste' });
+  ok(a1.sugestao === null && a2.sugestao && a2.sugestao.copos === 3 && a2.sugestao.min === 3, 'com a regra em 3 cafés a sugestão só vem no 3º');
+  vc({ 'var-n50': 2 }, 'cli-joao-exemplo');   // o João passa a ter o café normal de 50 ml como favorito (3 contra 1)
+  // análise por cliente, conferida contra os registros
+  const clube = ver(T, T.pedro, 'clientes', 'clube', '');
+  const vA = T.db().t('venda').filter((v) => v.status === 'ATIVO' && v.cliente_id), soma = (a, f) => a.reduce((s, x) => s + f(x), 0);
+  const porC = (id) => vA.filter((v) => v.cliente_id === id), linha = (id) => clube.clientes.find((c) => c.id === id);
+  ok(clube.ok && clube.total === 3 && linha('cli-joao-exemplo').copos === soma(porC('cli-joao-exemplo'), (v) => v.copos) && linha('cli-maria-exemplo').copos === soma(porC('cli-maria-exemplo'), (v) => v.copos), 'lista do clube: copos de cada cliente batem com as vendas', clube.clientes);
+  ok(linha('cli-joao-exemplo').fat === soma(porC('cli-joao-exemplo'), (v) => v.total_cafe_centavos + v.total_sorteio_centavos) && clube.clientes[0].copos >= clube.clientes[1].copos && clube.clientes[1].copos >= clube.clientes[2].copos, 'e o faturamento também; a lista vem do que mais comprou para o que menos');
+  ok(clube.coposClientes === soma(vA, (v) => v.copos) && clube.coposTodos === soma(T.db().t('venda').filter((v) => v.status === 'ATIVO'), (v) => v.copos) && clube.pctCopos === Math.round(clube.coposClientes / clube.coposTodos * 100), 'quanto dos copos vendidos foi para clientes do clube', [clube.coposClientes, clube.coposTodos, clube.pctCopos]);
+  ok(linha('cli-joao-exemplo').numeros === T.ctx.estadoSorteio_(T.db(), T.ctx.AGORA_TESTE().dataHora).validos.filter((x) => x.cliente_id === 'cli-joao-exemplo').length && linha('cli-joao-exemplo').temMotivo === true, 'números de cada cliente e se já tem anotação');
+  ok(ver(T, T.pedro, 'clientes', 'clube', 'joão').clientes.length === 1 && ver(T, T.pedro, 'clientes', 'clube', 'zzz').clientes.length === 0, 'filtro por nome no clube');
+  const det = T.ch(T.pedro, 'ver', { tela: 'clientes', sub: 'clube', q: '', cid: 'cli-joao-exemplo' }).detalhe;
+  ok(det.nome === 'João (exemplo)' && det.copos === linha('cli-joao-exemplo').copos && det.motivo === 'Gosta do café com canela, toma de manhã' && det.favorito === 'normal 50 ml' && det.porProduto.length >= 1 && det.porSemana.length === 7 && det.ultimas.length >= 1, 'detalhe do cliente: totais, favorito, anotação, produtos, dias da semana e últimas compras', det);
+  ok(det.numeros.length === T.db().t('numero_sorteio').filter((x) => x.cliente_id === 'cli-joao-exemplo').length && det.numeros.some((x) => x.podeCancelar) && det.numeros.some((x) => !x.podeCancelar && x.motivo === 'Comprado'), 'números do cliente: os dados podem ser cancelados e os comprados, não', det.numeros);
+  ok(det.coposHoje === soma(porC('cli-joao-exemplo').filter((v) => v.dia_local === H(T)), (v) => v.copos) && det.minimo === 3 && ver(T, T.pedro, 'clientes', 'clube', '').detalhe === null, 'copos de hoje e o mínimo da regra; sem cliente escolhido não vem detalhe');
+  // venda desfeita sai das contas; número dado continua
+  const antesC = linha('cli-joao-exemplo').copos, idU = T.db().t('venda').filter((v) => v.cliente_id === 'cli-joao-exemplo' && v.status === 'ATIVO').slice(-1)[0];
+  ok(T.ch(T.pedro, 'estornar', { tabela: 'venda', id: idU.id }).ok && ver(T, T.pedro, 'clientes', 'clube', '').clientes.find((c) => c.id === 'cli-joao-exemplo').copos === antesC - idU.copos, 'venda desfeita sai das contas do cliente');
+  ok(T.db().achar('numero_sorteio', nid).status === 'ATIVO', 'e o número que foi dado continua valendo');
+  // mascarado na Venda
+  const m = T.ch(T.pedro, 'cliente.mascarado', { id: 'cli-joao-exemplo' }).cliente;
+  ok(m.nome === 'João (exemplo)' && /•/.test(m.contato) && m.coposHoje === det.coposHoje - idU.copos && m.minimo === 3 && m.nNumeros >= 1, 'na Venda o cliente vem com telefone mascarado, copos de hoje e números', m);
+  ok(T.ch(T.pedro, 'sistema.auditar').limpo && T2.ch(T2.pedro, 'sistema.auditar').limpo, 'auditoria limpa (número sem venda é aceito)');
+  // planilha instalada antes: ganha as colunas novas sem perder nada
+  const T3 = iniciar({ exemplos: true }), shC = T3.ss.getSheetByName('cliente'), nC = T3.ctx.esquemaTabela_('cliente').colunas.length;
+  shC.getRange(1, nC).setValue(''); shC.getRange(2, nC, 3, 1).clearContent();
+  T3.ctx.instalarPlanilha_(T3.ss, new Date().toISOString());
+  ok(new T3.ctx.Banco(T3.ss, { semCache: true }).t('cliente').length === 2 && T3.ch(T3.pedro, 'ver', { tela: 'clientes', sub: 'clube', q: '' }).ok && T3.ch(T3.pedro, 'sistema.auditar').limpo, 'planilha antiga: ganha a coluna de anotação e o clube abre');
 }
 
 grupo('dia a dia: dias com e sem serviço');

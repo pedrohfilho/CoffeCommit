@@ -166,7 +166,7 @@ function estadoSorteio_(db, ts) {
   var vendas = mapa_(db, 'venda');
   var rodadas = db.t('sorteio').filter(function (s) { return s.status !== 'CANCELADO'; }).sort(function (a, b) { return a.rodada - b.rodada; });
   var abertos = rodadas.filter(function (s) { return s.status === 'ABERTO'; }), aberto = ultimo_(abertos);
-  var validos = db.t('numero_sorteio').filter(function (n) { var v = vendas[n.venda_id]; return n.status === 'ATIVO' && v && v.status === 'ATIVO'; });
+  var validos = db.t('numero_sorteio').filter(function (n) { var v = vendas[n.venda_id]; return n.status === 'ATIVO' && (!n.venda_id || (v && v.status === 'ATIVO')); });   // número dado pelo clube não tem venda
   var ativos = aberto ? validos.filter(function (n) { return n.sorteio_id === aberto.id; }) : [];
   var maxRodada = 0; db.t('sorteio').forEach(function (s) { if (s.rodada > maxRodada) maxRodada = s.rodada; });
   return { meta: meta, preco: preco, aberto: aberto, rodadaAtual: aberto ? aberto.rodada : maxRodada + 1, ativos: ativos, nAtivos: ativos.length, liberado: ativos.length >= meta, validos: validos, rodadas: rodadas, encerrados: rodadas.filter(function (s) { return s.status === 'ENCERRADO'; }) };
@@ -209,6 +209,17 @@ function gerarToken_(usados) {
     if (!usados[t]) { usados[t] = true; return t; }
   }
   var k = 10000; while (usados[String(k)]) k++; usados[String(k)] = true; return String(k);
+}
+
+/* clube: o cliente ganha um número do sorteio quando faz algo específico (hoje: tomar N cafés no dia). O sistema só sugere; quem dá o número é o Pedro */
+function cfgInt_(db, chave, padrao, ts) { var n = Math.round(Number(cfgValor_(db, chave, String(padrao), ts))); return n >= 1 ? n : padrao; }
+function coposDoClienteNoDia_(db, cid, dia) { return soma_(db.t('venda').filter(function (v) { return v.status === 'ATIVO' && v.cliente_id === cid && v.dia_local === dia; }), function (v) { return v.copos; }); }
+function numeroDoClubeNoDia_(db, cid, dia) { return db.t('numero_sorteio').some(function (n) { return n.status === 'ATIVO' && n.cliente_id === cid && !n.venda_id && formatarLocal_(n.criado_em, 'yyyy-MM-dd') === dia; }); }
+function sugestaoClube_(db, cliente, dia, coposDestaVenda, ts) {
+  if (!cliente) return null;
+  var min = cfgInt_(db, 'clube.copos_para_numero', 2, ts), hoje = coposDoClienteNoDia_(db, cliente.id, dia) + coposDestaVenda;
+  if (hoje < min || numeroDoClubeNoDia_(db, cliente.id, dia)) return null;
+  return { cliente_id: cliente.id, nome: cliente.nome, copos: hoje, min: min };
 }
 
 function ticketDaVenda_(db, vendaId) {
@@ -264,6 +275,10 @@ function cmdVenda_(db, ctx, p) {
     cliente = mapa_(db, 'cliente')[p.sorteio.cliente_id];
     if (!cliente || !cliente.ativo) falha_('Cliente inválido ou inativo.');
   }
+  if (!cliente && p.cliente_id) {   // cliente do clube em qualquer venda, com ou sem números
+    cliente = mapa_(db, 'cliente')[p.cliente_id];
+    if (!cliente || !cliente.ativo) falha_('Cliente inválido ou inativo.');
+  }
   if (!itens.length && !nSort) falha_('Nada no pedido.');
   // desconto manual: não é regra, é um valor que a pessoa informa na hora (ex.: 1º café grátis), com o nome da promoção do dia se quiser
   var desconto = Math.round(Number(p.desconto_centavos || 0)), promo = null;
@@ -273,6 +288,7 @@ function cmdVenda_(db, ctx, p) {
     if (p.promocao_id) { promo = mapa_(db, 'promocao')[p.promocao_id]; if (!promo || !promo.ativo) falha_('Promoção inválida ou desativada.'); }
   }
   var precoNum = nSort ? estadoSorteio_(db, ts).preco : 0, totalSort = nSort * precoNum;   // venda sem números nem toca no sorteio
+  var sug = sugestaoClube_(db, cliente, dia, copos, ts);
   var saldoAntes = cafeDoDia_(db, dia).saldo;
   var vendaId = p.id, numero = db.proximoNumero('venda');
   var venda = nova_(ctx, { id: vendaId, numero: numero, usuario_id: ctx.usuarioId, data_hora: ts, dia_local: dia, forma_pagamento_id: forma.id, cliente_id: cliente ? cliente.id : null, copos: copos, ml_cafe: r3_(ml), total_cafe_centavos: total - desconto, total_sorteio_centavos: totalSort, status: 'ATIVO', desconto_centavos: desconto, promocao_id: promo ? promo.id : null, vendedor_id: vendedor.id });
@@ -296,7 +312,7 @@ function cmdVenda_(db, ctx, p) {
   var passou = ml > saldoAntes + 1e-9;
   if (passou) msg = 'Venda registrada, mas passou do café preparado. Registre o preparo que faltou ou ajuste no Fechamento.';
   if (lc.negativos.length) msg += avisoFalta_(lc.negativos, 'esta venda (' + vendedor.nome + ')');
-  return { msg: msg, passou: passou, atencao: lc.negativos.length > 0, ticket: nSort ? ticketDaVenda_(db, vendaId) : null, numero: numero };
+  return { msg: msg, passou: passou, atencao: lc.negativos.length > 0, ticket: nSort ? ticketDaVenda_(db, vendaId) : null, numero: numero, sugestao: sug };
 }
 
 /* ---------- preparo: rápido (só litros e quem) e materiais depois ---------- */
@@ -625,6 +641,35 @@ function cmdClienteAtivo_(db, ctx, p) {
   db.atualizar('cliente', c.id, Object.assign({ ativo: !!p.ativo }, carimbo_(ctx, db, c)));
   return { msg: p.ativo ? 'Cliente ativado.' : 'Cliente inativado.' };
 }
+/* clube: anotação do Pedro sobre o cliente (por que compra, o que gosta) */
+function cmdClienteMotivo_(db, ctx, p) {
+  var c = db.achar('cliente', p.id);
+  if (!c) falha_('Cliente não encontrado.');
+  var t = String(p.motivo == null ? '' : p.motivo).trim();
+  if (t.length > 300) falha_('A anotação passa de 300 letras.');
+  db.atualizar('cliente', c.id, Object.assign({ motivo: t || null }, carimbo_(ctx, db, c)));
+  return { msg: 'Anotação salva.' };
+}
+/* número do sorteio dado a um cliente (sem venda e sem valor) */
+function cmdNumeroDar_(db, ctx, p) {
+  idValido_(p.id);
+  var ja = db.achar('numero_sorteio', p.id);
+  if (ja) return { msg: 'Número já registrado.', repetido: true, ticket: { cliente: (mapa_(db, 'cliente')[ja.cliente_id] || {}).nome || '', numeros: [{ numero: ja.numero, token: ja.token }] } };
+  var c = mapa_(db, 'cliente')[p.cliente_id];
+  if (!c || !c.ativo) falha_('Cliente inválido ou inativo.');
+  var ts = ctx.agora.dataHora, ab = sorteioAberto_(db, ctx, true), tok = gerarToken_(tokensUsados_(db)), numero = maxNumeroSorteio_(db) + 1;
+  var motivo = String(p.motivo || '').trim().slice(0, 80) || 'Dado pelo clube';
+  db.anexar('numero_sorteio', [{ id: p.id, numero: numero, token: tok, cliente_id: c.id, venda_id: null, sorteio_id: ab.id, valor_centavos: 0, criado_em: ts, status: 'ATIVO', motivo: motivo, criado_por: ctx.usuarioId }]);
+  return { msg: 'Número ' + pad4_(numero) + ' (código ' + tok + ') dado a ' + c.nome + '.', ticket: { cliente: c.nome, numeros: [{ numero: numero, token: tok }] } };
+}
+function cmdNumeroCancelar_(db, ctx, p) {
+  var n = db.achar('numero_sorteio', p.id);
+  if (!n) falha_('Número não encontrado.');
+  if (n.venda_id) falha_('Esse número veio de uma venda: desfaça a venda.');
+  if (n.status !== 'ATIVO') falha_('Esse número já foi cancelado.');
+  db.atualizar('numero_sorteio', n.id, { status: 'ESTORNADO' });
+  return { msg: 'Número ' + pad4_(n.numero) + ' cancelado.' };
+}
 function cmdNovoSorteio_(db, ctx, p) {
   idValido_(p.id);
   if (db.achar('sorteio', p.id)) return { msg: 'Novo sorteio já registrado.', repetido: true };
@@ -657,8 +702,8 @@ function fecharVigencia_(db, ctx, tabela, atual) {
   db.atualizar(tabela, atual.id, Object.assign({ vigente_ate: ctx.agora.dataHora }, tabela === 'preco_venda' || tabela === 'config' ? {} : carimbo_(ctx, db, atual)));
 }
 function cmdConfig_(db, ctx, p) {
-  var CHAVES = { 'sorteio.meta_numeros': [10, 500], 'sorteio.preco_numero_centavos': [1, 100000] };
-  var NOMES = { 'sorteio.meta_numeros': 'A meta do sorteio deve ficar entre 10 e 500 números.', 'sorteio.preco_numero_centavos': 'O preço do número deve ficar entre R$ 0,01 e R$ 1.000,00.' };
+  var CHAVES = { 'sorteio.meta_numeros': [10, 500], 'sorteio.preco_numero_centavos': [1, 100000], 'clube.copos_para_numero': [1, 20] };
+  var NOMES = { 'sorteio.meta_numeros': 'A meta do sorteio deve ficar entre 10 e 500 números.', 'sorteio.preco_numero_centavos': 'O preço do número deve ficar entre R$ 0,01 e R$ 1.000,00.', 'clube.copos_para_numero': 'Os cafés no dia para ganhar um número devem ficar entre 1 e 20.' };
   var itens = p.itens || (p.chave ? (function () { var o = {}; o[p.chave] = p.valor; return o; })() : {}), ts = ctx.agora.dataHora, novos = {};
   if (!Object.keys(itens).length) falha_('Configuração inválida.');
   Object.keys(itens).forEach(function (k) {

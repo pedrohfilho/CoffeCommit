@@ -45,7 +45,7 @@ function rotas_() {
     'venda.registrar': cmdVenda_, 'preparo.registrar': cmdPreparo_, 'compra.registrar': cmdCompra_,
     'cafe.perda': cmdPerdaCafe_, 'cafe.acerto': cmdAcertoCafe_, 'estoque.mover': cmdMoverEstoque_,
     'dia.fechar': cmdFecharDia_, 'dia.reabrir': cmdReabrirDia_, 'financeiro.lancar': cmdLancamento_,
-    'estornar': cmdEstornar_, 'cliente.salvar': cmdClienteSalvar_, 'cliente.ativo': cmdClienteAtivo_,
+    'estornar': cmdEstornar_, 'cliente.salvar': cmdClienteSalvar_, 'cliente.ativo': cmdClienteAtivo_, 'cliente.motivo': cmdClienteMotivo_, 'numero.dar': cmdNumeroDar_, 'numero.cancelar': cmdNumeroCancelar_,
     'sorteio.novo': cmdNovoSorteio_, 'config.salvar': cmdConfig_, 'preco.alterar': cmdPreco_,
     'variante.ativo': cmdVarianteAtivo_, 'material.salvar': cmdMaterialSalvar_, 'receita.salvar': cmdReceita_,
     'composicao.salvar': cmdComposicao_, 'promocao.salvar': cmdPromocao_,
