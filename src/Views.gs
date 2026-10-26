@@ -108,7 +108,7 @@ function clienteMascarado_(db, ctx, p) {
   var c = mapa_(db, 'cliente')[p.id];
   if (!c) return null;
   var dia = ctx.agora.diaLocal, est = estadoSorteio_(db, ctx.agora.dataHora);
-  return { id: c.id, nome: c.nome, contato: maskTel_(c.telefone), coposHoje: coposDoClienteNoDia_(db, c.id, dia), nNumeros: est.validos.filter(function (n) { return n.cliente_id === c.id; }).length, minimo: cfgInt_(db, 'clube.copos_para_numero', 2, ctx.agora.dataHora) };
+  return { id: c.id, nome: c.nome, contato: maskTel_(c.telefone), coposHoje: coposDoClienteNoDia_(db, c.id, dia), nNumeros: est.validos.filter(function (n) { return n.cliente_id === c.id; }).length, credito: saldoCredito_(db, c.id), minimo: cfgInt_(db, 'clube.copos_para_numero', 2, ctx.agora.dataHora) };
 }
 
 /* ---------------- Preparo ---------------- */
@@ -475,10 +475,12 @@ function detalheCliente_(db, ctx, an, cid, est) {
   var nums = db.t('numero_sorteio').filter(function (n) { return n.cliente_id === cid; }).sort(function (x, y) { return y.numero - x.numero; }).map(function (n) { return { id: n.id, numero: n.numero, token: n.token, quando: dm_(n.criado_em), motivo: n.motivo || (n.venda_id ? 'Comprado' : 'Dado pelo clube'), ativo: n.status === 'ATIVO', podeCancelar: n.status === 'ATIVO' && !n.venda_id }; });
   var fav = favoritoDe_(a.produtos);
   return { id: c.id, nome: c.nome, contato: fmtTel_(c.telefone), email: c.email, ativo: c.ativo, motivo: c.motivo || '', copos: a.copos, fat: a.fat, nVendas: a.vendas.length, nDias: dias.length, desde: diaBr_(dias[0]), ultima: diaBr_(dias[dias.length - 1]), media: dias.length ? r3_(a.copos / dias.length) : 0, comDesconto: a.comDesconto, favorito: fav ? fav.nome : null,
-    porProduto: barras_(prodL, nCopos_), porSemana: barras_(semL, nCopos_), ultimas: ult, numeros: nums, coposHoje: coposDoClienteNoDia_(db, cid, ctx.agora.diaLocal), minimo: cfgInt_(db, 'clube.copos_para_numero', 2, ctx.agora.dataHora) };
+    porProduto: barras_(prodL, nCopos_), porSemana: barras_(semL, nCopos_), ultimas: ult, numeros: nums, coposHoje: coposDoClienteNoDia_(db, cid, ctx.agora.diaLocal), minimo: cfgInt_(db, 'clube.copos_para_numero', 2, ctx.agora.dataHora),
+    credito: saldoCredito_(db, cid), movCredito: db.t('credito_cliente').filter(function (x) { return x.cliente_id === cid && x.status !== 'GRAVANDO'; }).sort(function (x, y) { return x.data_hora < y.data_hora ? 1 : -1; }).slice(0, 10).map(function (x) { return { id: x.id, tipo: x.tipo, valor: x.valor_centavos, obs: x.observacao || '', quando: dm_(x.data_hora), ativo: x.status === 'ATIVO' }; }) };
 }
 function viewClientes_(db, ctx, sub, q, cid) {
-  var ts = ctx.agora.dataHora, est = estadoSorteio_(db, ts), ativosPor = {};
+  var ts = ctx.agora.dataHora, est = estadoSorteio_(db, ts), ativosPor = {}, credPor = {};
+  db.t('credito_cliente').forEach(function (x) { if (x.status === 'ATIVO') credPor[x.cliente_id] = (credPor[x.cliente_id] || 0) + (x.tipo === 'DEPOSITO' ? x.valor_centavos : -x.valor_centavos); });
   est.ativos.forEach(function (n) { (ativosPor[n.cliente_id] = ativosPor[n.cliente_id] || []).push(n); });
   var nClientesComNum = Object.keys(ativosPor).length;
   if (sub === 'sorteio') {
@@ -502,17 +504,17 @@ function viewClientes_(db, ctx, sub, q, cid) {
     est.validos.forEach(function (n) { numPor[n.cliente_id] = (numPor[n.cliente_id] || 0) + 1; });
     var lista = db.t('cliente').filter(function (c) { return !filtro || c.nome.toLowerCase().indexOf(filtro) >= 0; }).map(function (c) {
       var a = an.por[c.id], fav = a ? favoritoDe_(a.produtos) : null, dias = a ? Object.keys(a.dias).sort() : [];
-      return { id: c.id, nome: c.nome, ativo: c.ativo, copos: a ? a.copos : 0, fat: a ? a.fat : 0, nVendas: a ? a.vendas.length : 0, ultima: dias.length ? diaBr_(dias[dias.length - 1]).slice(0, 5) : '', favorito: fav ? fav.nome : null, numeros: numPor[c.id] || 0, temMotivo: !!c.motivo };
+      return { id: c.id, nome: c.nome, ativo: c.ativo, copos: a ? a.copos : 0, fat: a ? a.fat : 0, nVendas: a ? a.vendas.length : 0, ultima: dias.length ? diaBr_(dias[dias.length - 1]).slice(0, 5) : '', favorito: fav ? fav.nome : null, numeros: numPor[c.id] || 0, temMotivo: !!c.motivo, credito: credPor[c.id] || 0 };
     }).sort(function (x, y) { return y.copos - x.copos || x.nome.localeCompare(y.nome, 'pt-BR'); });
     var coposTodos = soma_(db.t('venda').filter(function (v) { return v.status === 'ATIVO'; }), function (v) { return v.copos; }), coposCli = soma_(lista, function (x) { return x.copos; });
-    return { sub: sub, total: db.t('cliente').length, comCompra: lista.filter(function (x) { return x.copos > 0; }).length, coposClientes: coposCli, coposTodos: coposTodos, pctCopos: coposTodos ? Math.round(coposCli / coposTodos * 100) : 0, minimo: cfgInt_(db, 'clube.copos_para_numero', 2, ts), encontrados: lista.length, mostrando: Math.min(lista.length, 60), clientes: lista.slice(0, 60), detalhe: cid ? detalheCliente_(db, ctx, an, cid, est) : null };
+    return { sub: sub, total: db.t('cliente').length, comCompra: lista.filter(function (x) { return x.copos > 0; }).length, coposClientes: coposCli, coposTodos: coposTodos, pctCopos: coposTodos ? Math.round(coposCli / coposTodos * 100) : 0, minimo: cfgInt_(db, 'clube.copos_para_numero', 2, ts), encontrados: lista.length, mostrando: Math.min(lista.length, 60), creditoTotal: soma_(lista, function (x) { return x.credito; }), clientes: lista.slice(0, 60), detalhe: cid ? detalheCliente_(db, ctx, an, cid, est) : null };
   }
   var f = filtrarClientes_(db, q), base = f.ativa ? f.lista : db.t('cliente');
   var ord = base.slice().sort(function (a, b) { return a.nome.localeCompare(b.nome, 'pt-BR'); });
   return {
     sub: sub, total: db.t('cliente').length, comNumeros: nClientesComNum, mostrando: Math.min(ord.length, 60), encontrados: ord.length,
     clientes: ord.slice(0, 60).map(function (c) {
-      return { id: c.id, codigo: c.codigo, nome: c.nome, telefone: fmtTel_(c.telefone), email: c.email, ativo: c.ativo, numeros: (ativosPor[c.id] || []).sort(function (a, b) { return a.numero - b.numero; }).map(function (n) { return { numero: n.numero, token: n.token }; }) };
+      return { id: c.id, codigo: c.codigo, nome: c.nome, telefone: fmtTel_(c.telefone), email: c.email, ativo: c.ativo, credito: credPor[c.id] || 0, numeros: (ativosPor[c.id] || []).sort(function (a, b) { return a.numero - b.numero; }).map(function (n) { return { numero: n.numero, token: n.token }; }) };
     })
   };
 }

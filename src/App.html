@@ -205,7 +205,8 @@
     var cliCard = '';
     if (vs.cliente) {
       var cc = vs.cliente, ch = cc.coposHoje || 0, nn2 = cc.nNumeros || 0;
-      cliCard = '<div class="selcli"><div><div class="nm">' + esc(cc.nome) + '</div>' + muted(cc.contato + ' \u00B7 ' + ch + (ch === 1 ? ' café hoje' : ' cafés hoje') + ' \u00B7 ' + nn2 + (nn2 === 1 ? ' número' : ' números')) + '</div>' + ghost('Trocar', 'vs-trocar') + '</div>';
+      cliCard = '<div class="selcli"><div><div class="nm">' + esc(cc.nome) + '</div>' + muted(cc.contato + ' \u00B7 ' + ch + (ch === 1 ? ' café hoje' : ' cafés hoje') + ' \u00B7 ' + nn2 + (nn2 === 1 ? ' número' : ' números')) + (cc.credito > 0 ? '<div class="nm">' + esc('Crédito: ' + fmtR(cc.credito)) + '</div>' : '') + '</div>' + ghost('Trocar', 'vs-trocar') + '</div>' +
+        (cc.credito > 0 && t.cents > 0 ? '<div class="row2">' + ghost('Descontar ' + fmtR(Math.min(cc.credito, t.cents)) + ' do crédito', 'cred-usar', String(Math.min(cc.credito, t.cents))) + '</div>' : '');
     } else if (vs.abrir) {
       cliCard = lbl('Cliente') + '<div class="col">' + entrada('vs-busca', vs.busca, { ph: 'Nome, telefone ou e-mail' }) + '<div id="vs-res" class="dc">' + htmlResVenda() + '</div><div class="row2">' + ghost('Cadastrar cliente novo', 'vs-novo') + ghost('Fechar', 'vs-fechar') + '</div></div>';
     } else {
@@ -574,9 +575,9 @@
   }
   function htmlResClientes(v) {
     return v.clientes.map(function (c) {
-          return card(linha('<div><div class="nm">' + esc(c.nome) + '</div>' + muted(c.codigo + ' \u00B7 ' + c.telefone) + muted(c.email) + '</div>', chip(c.ativo ? 'Ativo' : 'Inativo', c.ativo, 'cli-ativo', c.id + '|' + (c.ativo ? 0 : 1))) +
+          return card(linha('<div><div class="nm">' + esc(c.nome) + '</div>' + muted(c.codigo + ' \u00B7 ' + c.telefone) + muted(c.email) + (c.credito ? muted('Crédito: ' + fmtR(c.credito)) : '') + '</div>', chip(c.ativo ? 'Ativo' : 'Inativo', c.ativo, 'cli-ativo', c.id + '|' + (c.ativo ? 0 : 1))) +
             (c.numeros.length ? '<div class="numbox">' + lbl(c.numeros.length + (c.numeros.length === 1 ? ' número ativo' : ' números ativos')) + '<div class="mono' + (S.cli0.todos[c.id] ? ' cols' : '') + '">' + esc(linhasNum(S.cli0.todos[c.id] || c.numeros.length <= 5 ? c.numeros : c.numeros.slice(0, 5))) + '</div>' + (c.numeros.length > 5 ? ghost(S.cli0.todos[c.id] ? 'Mostrar menos' : 'Ver todos os ' + c.numeros.length, 'cli-todos', c.id) : '') + '</div>' : muted('Nenhum número ativo')) +
-            '<div class="row2">' + btn('Vender', 'cli-vender', c.id, { dis: !c.ativo }) + ghost('Dar número', 'cli-dar', c.id) + ghost('Editar dados', 'cli-editar', c.id) + '</div>');
+            '<div class="row2">' + btn('Vender', 'cli-vender', c.id, { dis: !c.ativo }) + ghost('Dar número', 'cli-dar', c.id) + ghost('Editar', 'cli-editar', c.id) + '</div>');
     }).join('') + (v.encontrados > v.mostrando ? muted('Mostrando ' + v.mostrando + ' de ' + v.encontrados + ': use o filtro para achar os outros.') : '') +
       (v.clientes.length ? '' : card(muted(v.total === 0 ? 'Nenhum cliente cadastrado ainda. Toque em "Novo cliente".' : 'Nenhum cliente encontrado para esse filtro.')));
   }
@@ -587,14 +588,14 @@
   function htmlClubeLista(v) {
     return v.clientes.map(function (c) {
       return '<button type="button" class="mrow" data-a="cli-abrir" data-v="' + esc(c.id) + '"><div><div class="pn">' + esc(c.nome) + (c.ativo ? '' : ' (inativo)') + '</div>' + muted(c.copos ? c.copos + (c.copos === 1 ? ' copo' : ' copos') + ' \u00B7 ' + fmtR(c.fat) + (c.favorito ? ' \u00B7 ' + c.favorito : '') + (c.ultima ? ' \u00B7 últ. ' + c.ultima : '') : 'Ainda sem compras ligadas a ele') + '</div>' +
-        (c.numeros ? '<span class="tag okk">' + c.numeros + (c.numeros === 1 ? ' nº' : ' nºs') + '</span>' : '') + '<span class="chev">\u203A</span></button>';
+        (c.credito ? '<span class="tag pend">crédito ' + esc(fmtR(c.credito)) + '</span>' : '') + (c.numeros ? '<span class="tag okk">' + c.numeros + (c.numeros === 1 ? ' nº' : ' nºs') + '</span>' : '') + '<span class="chev">\u203A</span></button>';
     }).join('') + (v.encontrados > v.mostrando ? muted('Mostrando ' + v.mostrando + ' de ' + v.encontrados + ': use o filtro para achar os outros.') : '') +
       (v.clientes.length ? '' : card(muted(v.total === 0 ? 'Nenhum cliente cadastrado ainda. Cadastre em Clientes.' : 'Nenhum cliente encontrado para esse filtro.')));
   }
   function telaClube(v) {
     if (v.detalhe) return telaClienteDetalhe(v.detalhe);
     return '<div class="sec">' + card(rotulo('cli-q', 'Filtrar por nome') + entrada('cli-q', S.cli.q, { ph: 'Nome do cliente' }) +
-      muted(v.comCompra + ' de ' + v.total + (v.total === 1 ? ' cliente tem' : ' clientes têm') + ' compras ligadas a ele \u00B7 ' + v.pctCopos + '% dos copos vendidos foram para clientes do clube. Ligue o cliente na tela de Venda para acompanhar o que cada um compra. Quem toma ' + v.minimo + ' cafés no dia pode ganhar um número do sorteio (quem dá o número é você).'), 'full') +
+      muted(v.comCompra + ' de ' + v.total + (v.total === 1 ? ' cliente tem' : ' clientes têm') + ' compras ligadas a ele \u00B7 ' + v.pctCopos + '% dos copos vendidos foram para clientes do clube. Ligue o cliente na tela de Venda para acompanhar o que cada um compra. Quem toma ' + v.minimo + ' cafés no dia pode ganhar um número do sorteio (quem dá o número é você).' + (v.creditoTotal ? ' Crédito em aberto com os clientes: ' + fmtR(v.creditoTotal) + '.' : '')), 'full') +
       '<div id="clube-res" class="list full">' + htmlClubeLista(v) + '</div></div>';
   }
   function telaClienteDetalhe(d) {
@@ -603,6 +604,9 @@
       tiles([{ lbl: 'Copos', val: String(d.copos) }, { lbl: 'Faturamento', val: fmtR(d.fat) }, { lbl: 'Dias que veio', val: String(d.nDias) }, { lbl: 'Média por dia', val: fmtN(d.media) + ' copos' }, { lbl: 'Com desconto', val: d.comDesconto + (d.comDesconto === 1 ? ' venda' : ' vendas') }, { lbl: 'Última vez', val: d.ultima || '\u2014' }]) +
       card(lbl('Café preferido') + (d.favorito ? '<div class="nm">' + esc(nb(d.favorito)) + '</div>' : muted('Sem compras ligadas a ele ainda.')) + (d.desde ? muted('Cliente desde ' + d.desde) : '')) +
       card(rotulo('cli-motivo', 'Por que compra, o que gosta') + entrada('cli-motivo', motivo, { ph: 'Ex.: toma de manhã, gosta com canela' }) + btn('Salvar anotação', 'cli-motivo-salvar', null, { dis: S.ocupado || String(motivo).trim() === d.motivo })) +
+      card(linha(lbl('Crédito do cliente'), '<div class="big">' + esc(fmtR(d.credito)) + '</div>') + muted('Troco que fica para cafés futuros. É só um controle: não muda a venda nem o caixa.') + rotulo('cli-cred', 'Valor (R$)') + entrada('cli-cred', S.cli.cred || '', { ph: 'Ex.: 8,00', modo: 'decimal' }) +
+        '<div class="row2">' + btn('Guardar crédito', 'cli-cred-dep', null, { dis: S.ocupado }) + ghost('Descontar', 'cli-cred-uso') + '</div>' +
+        '<div class="rows">' + d.movCredito.map(function (x) { return '<div class="it"><div><div class="nm' + (x.ativo ? '' : ' struck') + '">' + esc((x.tipo === 'DEPOSITO' ? '+ ' : '\u2212 ') + fmtR(x.valor)) + '</div>' + muted(x.quando + (x.obs ? ' \u00B7 ' + x.obs : '')) + '</div>' + (x.ativo ? ghost('Desfazer', 'estornar', 'credito_cliente|' + x.id) : '<span class="tag err">DESFEITO</span>') + '</div>'; }).join('') + '</div>' + (d.movCredito.length ? '' : muted('Nenhum lançamento ainda.'))) +
       card(lbl('O que mais compra') + barras(d.porProduto) + (d.porProduto.length ? '' : muted('Sem dados ainda.'))) +
       card(lbl('Dias da semana (copos)') + barras(d.porSemana)) +
       card(lbl('Últimas compras') + '<div class="rows">' + d.ultimas.map(function (u) { return '<div class="it"><div><div class="nm">' + esc(nb(u.texto)) + '</div>' + muted(u.quando) + '</div><div class="nm">' + esc(fmtR(u.valor)) + '</div></div>'; }).join('') + '</div>' + (d.ultimas.length ? '' : muted('Nenhuma compra ligada a ele ainda.'))) +
@@ -719,6 +723,11 @@
         if (!ok) render();
       }).catch(function () { });
     }, 250);
+  }
+  function lancarCredito(tipo) {
+    var c = centsDe(S.cli.cred || '');
+    if (isNaN(c) || c <= 0) { aviso('Digite o valor do crédito em reais (ex.: 8,00).', true); render(); return; }
+    agir('credito.lancar', { id: idDe('credito'), cliente_id: S.cli.det, tipo: tipo, valor_centavos: c, observacao: '' }, { depois: function () { limparId('credito'); S.cli.cred = ''; } });
   }
   function irTela(t) { S.tela = t; S.msg = null; carregar(); }
   function restaurarVenda(c) { S.tela = 'venda'; S.vs.cliente = c; S.vs.abrir = false; S.vs.busca = ''; S.vs.res = []; carregar(); }
@@ -927,6 +936,12 @@
     'cli-abrir': function (v) { S.cli.det = v; S.cli.motivo = null; carregar(); },
     'cli-fechar': function () { S.cli.det = null; S.cli.motivo = null; carregar(); },
     'cli-motivo-salvar': function () { agir('cliente.motivo', { id: S.cli.det, motivo: S.cli.motivo }, { depois: function () { S.cli.motivo = null; } }); },
+    'cli-cred-dep': function () { lancarCredito('DEPOSITO'); },
+    'cli-cred-uso': function () { lancarCredito('USO'); },
+    'cred-usar': function (v) {
+      var c = S.vs.cliente; if (!c) return;
+      agir('credito.lancar', { id: idDe('credito'), cliente_id: c.id, tipo: 'USO', valor_centavos: Number(v), observacao: 'venda' }, { depois: function () { limparId('credito'); chamar('cliente.mascarado', { id: c.id }).then(function (m) { if (m.ok && m.cliente && S.vs.cliente && S.vs.cliente.id === c.id) { S.vs.cliente = m.cliente; render(); } }).catch(function () { }); } });
+    },
     'cli-dar': function (v) { agir('numero.dar', { id: idDe('numero'), cliente_id: v, motivo: 'Dado à mão' }, { depois: function () { limparId('numero'); } }); },
     'cli-dar-det': function () { agir('numero.dar', { id: idDe('numero'), cliente_id: S.cli.det, motivo: 'Dado à mão' }, { depois: function () { limparId('numero'); } }); },
     'num-cancelar': function (v) { agir('numero.cancelar', { id: v }); },
@@ -951,6 +966,7 @@
   var ENTRADAS = {
     'vs-busca': function (v) { S.vs.busca = v; buscarClienteVenda(); },
     'cli-q': function (v) { S.cli.q = v; recarregarClientes(); },
+    'cli-cred': function (v) { S.cli.cred = v; },
     'cli-motivo': function (v) { S.cli.motivo = v; var b = document.querySelector('[data-a="cli-motivo-salvar"]'); var d = V() && V().detalhe; if (b && d) b.disabled = String(v).trim() === d.motivo; },
     'nq-busca': function (v) { S.cli.nq = v; recarregarClientes(); },
     'cli-nome': function (v) { S.cli.form.nome = v; }, 'cli-tel': function (v) { S.cli.form.tel = v; }, 'cli-email': function (v) { S.cli.form.email = v; },

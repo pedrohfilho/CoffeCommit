@@ -62,7 +62,7 @@ grupo('instalação e esquema');
 {
   const T = iniciar();
   const nomes = T.ss.getSheets().map((s) => s.getName());
-  ok(nomes.length === 35, '35 abas (33 do esquema + _esquema + _versao)', nomes.length);
+  ok(nomes.length === 36, '36 abas (34 do esquema + _esquema + _versao)', nomes.length);
   ok(nomes[0] === 'usuario' && nomes[nomes.length - 1] === '_versao', 'abas ordenadas por grupo', [nomes[0], nomes[nomes.length - 1]]);
   const db = T.db();
   ok(db.t('material').length === 8 && db.t('produto_variante').length === 6 && db.t('preco_venda').length === 6, 'cadastros iniciais carregados');
@@ -206,11 +206,11 @@ grupo('travar as abas: uma já travada não impede as outras');
   T.ss.getSheetByName('produto_variante').protect = () => { throw new Error('A página "produto_variante" já está protegida.'); };
   T.ss.getSheetByName('log_sistema').protect = () => { throw new Error('Erro inesperado do Google'); };
   const r = T.ctx.protegerAbas_(T.ss);
-  ok(r.total === 35 && r.jaEstavam === 1 && r.travadas === 33 && r.falhas.length === 1 && /log_sistema/.test(r.falhas[0]), 'segue pelas outras abas: 33 travadas, 1 já estava, 1 falha', r);
+  ok(r.total === 36 && r.jaEstavam === 1 && r.travadas === 34 && r.falhas.length === 1 && /log_sistema/.test(r.falhas[0]), 'segue pelas outras abas: 34 travadas, 1 já estava, 1 falha', r);
   const avisos = [];
   T.ctx.SpreadsheetApp.getUi = () => ({ alert: (a, b) => { avisos.push([a, b]); return 'OK'; }, ButtonSet: { OK: 'OK' }, Button: { OK: 'OK' } });
   T.ctx.menuInstalar();
-  ok(avisos.length === 1 && /Abas travadas contra edição manual: 34 de 35/.test(avisos[0][1]) && /Não consegui travar: log_sistema/.test(avisos[0][1]), 'o instalador mostra quantas abas ficaram travadas', avisos[0]);
+  ok(avisos.length === 1 && /Abas travadas contra edição manual: 35 de 36/.test(avisos[0][1]) && /Não consegui travar: log_sistema/.test(avisos[0][1]), 'o instalador mostra quantas abas ficaram travadas', avisos[0]);
 }
 
 grupo('formatos de coluna (zeros à esquerda)');
@@ -634,16 +634,16 @@ grupo('DDL do MySQL e exportação');
   const T = iniciar({ exemplos: true });
   const ddl = T.ctx.gerarDDL_();
   const n = (ddl.match(/CREATE TABLE/g) || []).length;
-  ok(n === 33, '33 tabelas no DDL', n);
+  ok(n === 34, '34 tabelas no DDL', n);
   ok(/CREATE TABLE `venda`/.test(ddl) && /`total_cafe_centavos` BIGINT NOT NULL/.test(ddl) && /`status` ENUM\('GRAVANDO','ATIVO','ESTORNADO'\) NOT NULL/.test(ddl) && /`cliente_id` CHAR\(36\) NULL/.test(ddl), 'tipos corretos no DDL');
   ok(/UNIQUE KEY `uq_venda_numero`/.test(ddl) && /PRIMARY KEY \(`id`\)/.test(ddl) && /ADD CONSTRAINT `fk_venda_usuario_id` FOREIGN KEY/.test(ddl), 'chaves único, primária e estrangeira');
   ok(ddl.indexOf('CREATE TABLE `cliente`') < ddl.indexOf('CREATE TABLE `venda`') && ddl.indexOf('CREATE TABLE `venda`') < ddl.indexOf('CREATE TABLE `venda_item`'), 'tabelas na ordem de dependência');
   const ordem = T.ctx.ordemDeCarga_();
-  ok(ordem.length === 33 && ordem.indexOf('usuario') < ordem.indexOf('compra') && ordem.indexOf('compra') < ordem.indexOf('compra_item'), 'ordem de carga', ordem.slice(0, 5));
+  ok(ordem.length === 34 && ordem.indexOf('usuario') < ordem.indexOf('compra') && ordem.indexOf('compra') < ordem.indexOf('compra_item'), 'ordem de carga', ordem.slice(0, 5));
   ok(!/\bundefined\b/.test(ddl), 'DDL sem "undefined"');
   const url = T.ctx.exportarCSV_(T.ss, T.ctx.AGORA_TESTE());
   const pasta = T.amb.drive.pastas[0];
-  ok(/drive/.test(url) && pasta.arquivos.length === 34 && pasta.arquivos.some((a) => a.nome === 'schema.sql'), '33 CSVs + schema.sql na pasta', pasta.arquivos.length);
+  ok(/drive/.test(url) && pasta.arquivos.length === 35 && pasta.arquivos.some((a) => a.nome === 'schema.sql'), '34 CSVs + schema.sql na pasta', pasta.arquivos.length);
   const csv = pasta.arquivos.find((a) => a.nome === 'numero_sorteio.csv').conteudo.split('\n');
   ok(csv[0] === 'id,numero,token,cliente_id,venda_id,sorteio_id,valor_centavos,criado_em,status,motivo,criado_por' && /,0453,/.test(csv[1]), 'CSV com cabeçalho na ordem do esquema e token preservado', csv.slice(0, 2));
   ok(T.ctx.csvCampo_('a,"b"') === '"a,""b"""' && T.ctx.csvCampo_(true) === '1' && T.ctx.csvCampo_(null) === '', 'escape de CSV');
@@ -1514,6 +1514,47 @@ grupo('clube: cliente em qualquer venda, número dado e análise por cliente');
   ok(new T3.ctx.Banco(T3.ss, { semCache: true }).t('cliente').length === 2 && T3.ch(T3.pedro, 'ver', { tela: 'clientes', sub: 'clube', q: '' }).ok && T3.ch(T3.pedro, 'sistema.auditar').limpo, 'planilha antiga: ganha a coluna de anotação e o clube abre');
 }
 
+grupo('crédito do cliente: troco que fica para cafés futuros');
+{
+  const T = iniciar({ exemplos: true });
+  const saldo = (cid) => T.ctx.saldoCredito_(T.db(), cid), lim = (s) => String(s).replace(/\u00A0/g, ' ');
+  const cr = (cid, tipo, v, obs, id) => T.ch(T.pedro, 'credito.lancar', { id: id || T.uid(), cliente_id: cid, tipo: tipo, valor_centavos: v, observacao: obs });
+  ok(T.ch(T.pedro, 'cliente.salvar', { novo_id: 'cli-paulo-teste', nome: 'Paulo (teste)', telefone: '71900000009', email: 'paulo.teste@gmail.com' }).ok, 'cliente novo: o Paulo');
+  // o exemplo do Pedro: café de R$ 2,00, o Paulo deu R$ 10,00 e o troco de R$ 8,00 fica para cafés futuros
+  const d = cr('cli-paulo-teste', 'DEPOSITO', 800, 'troco do café de R$ 2,00 (pagou R$ 10,00)');
+  ok(d.ok && d.saldo === 800 && /Saldo: R\$.*8,00/.test(lim(d.msg)) && saldo('cli-paulo-teste') === 800, 'guarda o troco de R$ 8,00 como crédito do Paulo', d);
+  const seq = [200, 200, 200, 200].map((v) => cr('cli-paulo-teste', 'USO', v, 'café').saldo);
+  ok(JSON.stringify(seq) === JSON.stringify([600, 400, 200, 0]) && saldo('cli-paulo-teste') === 0, 'a cada café o saldo cai: 8, 6, 4, 2, 0 (em reais)', seq);
+  const neg = cr('cli-paulo-teste', 'USO', 100, 'a mais');
+  ok(neg.ok && neg.atencao && neg.saldo === -100 && /ficou negativo/.test(neg.msg), 'usar mais do que tem avisa, mas registra (nunca trava)', neg);
+  const idRep = T.uid(), a1 = cr('cli-paulo-teste', 'DEPOSITO', 500, null, idRep), a2 = cr('cli-paulo-teste', 'DEPOSITO', 500, null, idRep);
+  ok(a1.ok && a2.ok && a2.repetido && T.db().t('credito_cliente').filter((x) => x.id === idRep).length === 1 && saldo('cli-paulo-teste') === 400, 'reenvio do mesmo toque não lança em dobro');
+  ok(/inválido/.test(cr('cli-paulo-teste', 'AJUSTE', 100).erro) && /entre R\$ 0,01 e R\$ 1.000,00/.test(cr('cli-paulo-teste', 'DEPOSITO', 0).erro) && /entre R\$ 0,01/.test(cr('cli-paulo-teste', 'DEPOSITO', 100001).erro), 'tipo e valor inválidos são recusados');
+  T.ch(T.pedro, 'cliente.ativo', { id: 'cli-maria-exemplo', ativo: false });
+  ok(/inválido/.test(cr('cli-fantasma', 'DEPOSITO', 100).erro) && /inativo/.test(cr('cli-maria-exemplo', 'DEPOSITO', 100).erro), 'cliente que não existe ou está inativo é recusado');
+  // desfazer
+  const ult = T.db().t('credito_cliente').filter((x) => x.tipo === 'USO' && x.valor_centavos === 100).slice(-1)[0];
+  ok(T.ch(T.pedro, 'estornar', { tabela: 'credito_cliente', id: ult.id }).ok && saldo('cli-paulo-teste') === 500 && T.db().achar('credito_cliente', ult.id).status === 'ESTORNADO', 'desfazer um uso devolve o saldo');
+  ok(T.ch(T.pedro, 'estornar', { tabela: 'credito_cliente', id: ult.id }).erro === 'Esse registro já foi desfeito.', 'não desfaz duas vezes');
+  // telas
+  const lista = ver(T, T.pedro, 'clientes', 'lista', '').clientes, clube = ver(T, T.pedro, 'clientes', 'clube', '');
+  ok(lista.find((c) => c.id === 'cli-paulo-teste').credito === 500 && clube.clientes.find((c) => c.id === 'cli-paulo-teste').credito === 500 && clube.creditoTotal === 500, 'o crédito aparece na lista de clientes e no clube (com o total em aberto)', [clube.creditoTotal]);
+  const det = T.ch(T.pedro, 'ver', { tela: 'clientes', sub: 'clube', q: '', cid: 'cli-paulo-teste' }).detalhe;
+  ok(det.credito === 500 && det.movCredito.length === 7 && det.movCredito[0].id === idRep && det.movCredito.filter((x) => !x.ativo).length === 1, 'detalhe do cliente traz o saldo e os lançamentos, do mais novo ao mais antigo (o desfeito também aparece)', det.movCredito.map((x) => [x.tipo, x.valor, x.ativo]));
+  ok(det.movCredito.filter((x) => x.ativo).reduce((s, x) => s + (x.tipo === 'DEPOSITO' ? x.valor : -x.valor), 0) === det.credito, 'a soma dos lançamentos ativos mostrados bate com o saldo');
+  ok(T.ch(T.pedro, 'cliente.mascarado', { id: 'cli-paulo-teste' }).cliente.credito === 500, 'na Venda o cliente vem com o saldo de crédito');
+  ok(T.ch(T.pedro, 'sistema.auditar').limpo, 'auditoria limpa (desfeito sem lançamento nos livros)');
+  // zerar movimentos leva os lançamentos junto; planilha antiga ganha a aba nova
+  const T2 = iniciar({ exemplos: true });
+  T2.ch(T2.pedro, 'credito.lancar', { id: T2.uid(), cliente_id: 'cli-joao-exemplo', tipo: 'DEPOSITO', valor_centavos: 300 });
+  T2.ctx.zerarMovimentos_(T2.ss, new Date().toISOString());
+  ok(new T2.ctx.Banco(T2.ss, { semCache: true }).t('credito_cliente').length === 0, 'zerar movimentos também apaga o crédito de teste');
+  const T3 = iniciar({ exemplos: true });
+  T3.ss.deleteSheet(T3.ss.getSheetByName('credito_cliente'));
+  const inst = T3.ctx.instalarPlanilha_(T3.ss, new Date().toISOString());
+  ok(inst.criadas.length === 1 && inst.criadas[0] === 'credito_cliente' && T3.ch(T3.pedro, 'credito.lancar', { id: T3.uid(), cliente_id: 'cli-joao-exemplo', tipo: 'DEPOSITO', valor_centavos: 100 }).ok, 'planilha antiga: o Instalar cria a aba nova sem mexer nos dados', inst.criadas);
+}
+
 grupo('dia a dia: dias com e sem serviço');
 {
   const T = iniciar({ exemplos: true });
@@ -1588,7 +1629,7 @@ grupo('todas as telas respondem');
   telas.forEach((t) => { const r = ver(zero, zero.pedro, t[0], t[1]); ok(r.ok, 'tela vazia ' + t.join('/'), r.erro); });
   const pg = ver(T, T.pedro, 'paineis', 'geral');
   ok(pg.tiles.length === 4 && pg.b1.length === 6 && pg.b2.length === 2, 'painel geral com tiles e barras');
-  ok(ver(T, T.pedro, 'sistema').tabelas.length === 33, 'tela Sistema lista as 33 tabelas');
+  ok(ver(T, T.pedro, 'sistema').tabelas.length === 34, 'tela Sistema lista as 34 tabelas');
   const h = ver(T, T.pedro, 'historico').linhas;
   ok(h.length > 15 && h[0].quando >= h[h.length - 1].quando, 'histórico ordenado do mais novo ao mais antigo');
   const prep = ver(T, T.pedro, 'preparo');

@@ -586,7 +586,7 @@ function cmdLancamento_(db, ctx, p) {
 }
 
 /* ---------- estorno (desfazer) ---------- */
-var TABELAS_ESTORNAVEIS_ = ['venda', 'compra', 'preparo', 'ajuste_cafe', 'ajuste_estoque', 'lancamento_financeiro', 'sorteio', 'consumo_proprio'];
+var TABELAS_ESTORNAVEIS_ = ['venda', 'compra', 'preparo', 'ajuste_cafe', 'ajuste_estoque', 'lancamento_financeiro', 'sorteio', 'consumo_proprio', 'credito_cliente'];
 function cmdEstornar_(db, ctx, p) {
   if (TABELAS_ESTORNAVEIS_.indexOf(p.tabela) < 0) falha_('Esse registro não pode ser desfeito.');
   if (p.tabela === 'sorteio') return desfazerSorteio_(db, ctx, p);
@@ -640,6 +640,24 @@ function cmdClienteAtivo_(db, ctx, p) {
   if (!c) falha_('Cliente não encontrado.');
   db.atualizar('cliente', c.id, Object.assign({ ativo: !!p.ativo }, carimbo_(ctx, db, c)));
   return { msg: p.ativo ? 'Cliente ativado.' : 'Cliente inativado.' };
+}
+/* crédito do cliente: troco que fica para cafés futuros. Por enquanto é só controle visual (não mexe em venda nem em caixa) */
+function saldoCredito_(db, cid) { return db.t('credito_cliente').reduce(function (s, x) { return x.status === 'ATIVO' && x.cliente_id === cid ? s + (x.tipo === 'DEPOSITO' ? x.valor_centavos : -x.valor_centavos) : s; }, 0); }
+function cmdCredito_(db, ctx, p) {
+  idValido_(p.id);
+  var ja = db.achar('credito_cliente', p.id);
+  if (ja) return { msg: 'Lançamento já registrado.', repetido: true, saldo: saldoCredito_(db, ja.cliente_id) };
+  var c = mapa_(db, 'cliente')[p.cliente_id];
+  if (!c || !c.ativo) falha_('Cliente inválido ou inativo.');
+  if (p.tipo !== 'DEPOSITO' && p.tipo !== 'USO') falha_('Tipo de lançamento inválido.');
+  var v = Math.round(Number(p.valor_centavos));
+  if (!(v >= 1 && v <= 100000)) falha_('O valor deve ficar entre R$ 0,01 e R$ 1.000,00.');
+  var antes = saldoCredito_(db, c.id), obs = String(p.observacao || '').trim().slice(0, 80) || null;
+  db.anexar('credito_cliente', [nova_(ctx, { id: p.id, cliente_id: c.id, tipo: p.tipo, valor_centavos: v, observacao: obs, data_hora: ctx.agora.dataHora, dia_local: ctx.agora.diaLocal, usuario_id: ctx.usuarioId, status: 'ATIVO' })]);
+  var depois = antes + (p.tipo === 'DEPOSITO' ? v : -v);
+  var msg = (p.tipo === 'DEPOSITO' ? 'Crédito guardado de ' : 'Crédito usado de ') + c.nome + ': ' + fmtR_(v) + '. Saldo: ' + fmtR_(depois) + '.';
+  if (depois < 0) msg += ' Atenção: o saldo ficou negativo; confira o que o cliente ainda tinha.';
+  return { msg: msg, saldo: depois, atencao: depois < 0 };
 }
 /* clube: anotação do Pedro sobre o cliente (por que compra, o que gosta) */
 function cmdClienteMotivo_(db, ctx, p) {

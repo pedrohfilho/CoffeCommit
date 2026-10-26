@@ -81,7 +81,7 @@ flowchart TB
   end
   subgraph Dados["Dados"]
     CACHE[("CacheService<br/>tabelas em pedaços")]
-    SHEET[("Google Planilhas<br/>35 abas = tabelas")]
+    SHEET[("Google Planilhas<br/>36 abas = tabelas")]
   end
   UI -->|google.script.run| API
   API --> CORE
@@ -179,12 +179,12 @@ Não há senha. Na primeira abertura, cada aparelho pergunta *"Quem é você?"* 
 
 ## Modelo de dados
 
-São **33 tabelas** (mais `_esquema`, o dicionário gerado, e `_versao`), organizadas em quatro grupos:
+São **34 tabelas** (mais `_esquema`, o dicionário gerado, e `_versao`), organizadas em quatro grupos:
 
 | Grupo | Tabelas | Papel |
 |---|---|---|
 | **cadastro** (13) | `usuario`, `material`, `produto`, `produto_variante`, `preco_venda`, `composicao_copo`, `receita_cafe`, `fornecedor`, `forma_pagamento`, `motivo_perda`, `cliente`, `config`, `promocao` | O que muda devagar. Preço, composição, receita e configuração têm **vigência** |
-| **movimento** (15) | `compra`, `compra_item`, `preparo`, `preparo_consumo`, `preparo_plano`, `venda`, `venda_item`, `consumo_proprio`, `consumo_proprio_item`, `ajuste_cafe`, `ajuste_estoque`, `lancamento_financeiro`, `numero_sorteio`, `sorteio`, `fechamento_dia` | O que acontece. **Imutável**: a única mudança permitida é `ATIVO → ESTORNADO` |
+| **movimento** (16) | `compra`, `compra_item`, `preparo`, `preparo_consumo`, `preparo_plano`, `venda`, `venda_item`, `consumo_proprio`, `consumo_proprio_item`, `ajuste_cafe`, `ajuste_estoque`, `lancamento_financeiro`, `credito_cliente`, `numero_sorteio`, `sorteio`, `fechamento_dia` | O que acontece. **Imutável**: a única mudança permitida é `ATIVO → ESTORNADO` |
 | **livro** (2) | `movimento_estoque`, `movimento_cafe` | O razão: toda entrada e saída, de onde vêm os saldos |
 | **controle** (3) | `estorno`, `sequencia`, `log_sistema` | Desfazer, contadores sequenciais e erros |
 
@@ -255,6 +255,8 @@ Desfazer cria uma linha em `estorno`, muda o status do registro para `ESTORNADO`
 
 **Clube de fidelidade.** Qualquer venda pode ser ligada a um cliente (`venda.cliente_id`). A aba Clube analisa só as vendas ligadas: copos, faturamento, dias que veio, café preferido, dias da semana, últimas compras e uma anotação escrita à mão (`cliente.motivo`). O cliente ganha um **número do sorteio** ao fazer algo específico (hoje, tomar 2 cafés no dia, regra `clube.copos_para_numero`): o sistema só **sugere** e quem dá o número sou eu. O número dado não tem venda nem valor (`venda_id` vazio, `valor_centavos` 0) e pode ser cancelado; o que veio de venda só sai desfazendo a venda.
 
+**Crédito do cliente.** Quando o cliente paga a mais e o troco fica para cafés futuros, o valor vira **crédito**: `credito_cliente` guarda o que foi guardado (`DEPOSITO`) e o que ele já usou (`USO`), e o saldo é a soma dos lançamentos ativos (8, 6, 4, 2, 0 a cada café). Na Venda, o cliente ligado mostra o saldo e um botão para descontar do crédito. **Por enquanto é só um controle visual**: não muda o valor da venda nem o caixa, e desfazer um lançamento devolve o saldo. Usar mais do que tem avisa, mas registra.
+
 **Sorteio em rodadas.** Sempre existe um sorteio `ABERTO`, e cada número guarda o `sorteio_id` em que nasceu. O progresso conta os **números** do sorteio aberto, dados ou (nas vendas antigas) vendidos. "Novo sorteio" encerra o atual (os números ficam guardados nele) e abre outro do zero, sem reaproveitar numeração nem códigos de 4 dígitos.
 
 **Medidas em colher.** O café, o açúcar e a canela podem ser informados em colheres (a medida que eu realmente uso) ou em gramas, no preparo e na receita. O sistema sempre guarda gramas: a receita define quantos gramas tem cada colher de café, de açúcar e de canela.
@@ -316,7 +318,7 @@ O simulador reproduz detalhes que costumam esconder bugs no Planilhas real: text
 
 ## Qualidade
 
-- **696 verificações automáticas** das regras: venda, preparo, compra, estoque, fechamento, estorno, sorteio, desconto, consumo, painéis, auditoria, DDL e migração de planilhas já instaladas.
+- **712 verificações automáticas** das regras: venda, preparo, compra, estoque, fechamento, estorno, sorteio, desconto, consumo, painéis, auditoria, DDL e migração de planilhas já instaladas.
 - **Painéis conferidos contra os registros:** os testes recalculam cada número de cada painel direto das linhas e comparam com a tela.
 - **Teste diferencial do cache:** depois de cada uma de mais de vinte operações, todas as telas lidas com cache são comparadas com as lidas direto da planilha e precisam ser idênticas. Cache sumindo, corrompido ou falhando também não pode mudar resultado.
 - **Orçamento de chamadas:** os testes falham se uma gravação passar de 8 chamadas à planilha ou se abrir uma tela já vista tocar na planilha.
