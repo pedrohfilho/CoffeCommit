@@ -27,7 +27,7 @@ function ver_(db, ctx, q) {
     case 'compra': return viewCompra_(db, ctx);
     case 'fechamento': return viewFechamento_(db, ctx);
     case 'estoque': return viewEstoque_(db, ctx, q.sub || 'saldos');
-    case 'paineis': return q.sub === 'dias' ? viewDias_(db, ctx, q.mes) : viewPaineis_(db, ctx, q.sub || 'geral', q.periodo || 'tudo');
+    case 'paineis': return q.sub === 'dias' ? viewDias_(db, ctx, q.mes, q.pessoa) : viewPaineis_(db, ctx, q.sub || 'geral', q.periodo || 'tudo', q.pessoa);
     case 'cadastros': return viewCadastros_(db, ctx, q.sub || 'materiais');
     case 'financeiro': return viewFinanceiro_(db, ctx, q.sub || 'resultado');
     case 'clientes': return viewClientes_(db, ctx, q.sub || 'lista', q.q || '');
@@ -71,7 +71,7 @@ function viewVenda_(db, ctx) {
   var cafe = cafeDoDia_(db, dia), ipv = itensPorVenda_(db), formas = mapa_(db, 'forma_pagamento'), us = mapa_(db, 'usuario'), est = null;
   try { est = estadoSorteio_(db, ts); } catch (e) { est = null; }   // problema no sorteio não pode impedir a venda
   var ultimas = db.t('venda').filter(function (v) { return v.status === 'ATIVO' && v.dia_local === dia; }).slice(-4).reverse().map(function (v) {
-    return { id: v.id, numero: v.numero, hora: hm_(v.data_hora), usuario: nomeDe_(us, v.usuario_id), forma: nomeDe_(formas, v.forma_pagamento_id), total: v.total_cafe_centavos + v.total_sorteio_centavos, texto: textoVenda_(v, ipv) };
+    return { id: v.id, numero: v.numero, hora: hm_(v.data_hora), usuario: nomeDe_(us, v.vendedor_id || v.usuario_id), forma: nomeDe_(formas, v.forma_pagamento_id), total: v.total_cafe_centavos + v.total_sorteio_centavos, texto: textoVenda_(v, ipv) };
   });
   return {
     dia: dia, fechado: diaFechado_(db, dia), saldoMl: cafe.saldo, produtos: produtos,
@@ -210,8 +210,8 @@ function viewEstoque_(db, ctx, sub) {
 
 /* ---------------- agregados para painéis e financeiro ---------------- */
 /* desde: 'AAAA-MM-DD' (só dali em diante) ou null (tudo). Investido e reembolsado são sempre o acumulado. */
-function agregados_(db, ts, desde) {
-  var A = { litrosBase: { CAFE: 0, CAFE_LEITE: 0 }, fat: 0, fatSort: 0, copos: 0, nVendas: 0, vendMl: 0, porProd: {}, porPag: {}, porHora: {}, copGratis: 0, copParcial: 0, mlGratis: 0, mlParcial: 0, acertoMl: 0, perdaMl: 0, porTam: {}, desc: 0, nDesc: 0, mlServido: 0, consumoMl: 0, consumoCopos: 0, litros: 0, nPrep: 0, nPrepPend: 0, prodMlLanc: 0, gCafe: 0, prodMl: 0, custoAt: 0, custoPad: 0, gasto: 0, nCompras: 0, porLocal: {}, despesas: 0, perdaMot: {}, pess: {}, litrosPess: {}, histCafe: [] };
+function agregados_(db, ts, desde, pessoa) {
+  var A = { litrosBase: { CAFE: 0, CAFE_LEITE: 0 }, fat: 0, fatSort: 0, copos: 0, nVendas: 0, vendMl: 0, porProd: {}, porPag: {}, porHora: {}, fatPess: {}, dinPess: {}, copGratis: 0, copParcial: 0, mlGratis: 0, mlParcial: 0, acertoMl: 0, perdaMl: 0, porTam: {}, desc: 0, nDesc: 0, mlServido: 0, consumoMl: 0, consumoCopos: 0, litros: 0, nPrep: 0, nPrepPend: 0, prodMlLanc: 0, gCafe: 0, prodMl: 0, custoAt: 0, custoPad: 0, gasto: 0, nCompras: 0, porLocal: {}, despesas: 0, perdaMot: {}, pess: {}, litrosPess: {}, histCafe: [] };
   var us = db.t('usuario').filter(ativoOk_), formas = mapa_(db, 'forma_pagamento'), forn = mapa_(db, 'fornecedor'), mot = mapa_(db, 'motivo_perda'), vars = mapa_(db, 'produto_variante');
   function dentro(dia) { return !desde || dia >= desde; }
   us.forEach(function (u) { A.pess[u.id] = { ml: 0, invest: 0, reemb: 0 }; A.litrosPess[u.id] = 0; });
@@ -219,15 +219,17 @@ function agregados_(db, ts, desde) {
   function add(o, k, v) { o[k] = (o[k] || 0) + v; }
   var vendasAt = {};
   db.t('venda').forEach(function (v) {
-    if (v.status !== 'ATIVO' || !dentro(v.dia_local)) return;
+    if (v.status !== 'ATIVO' || !dentro(v.dia_local) || (pessoa && (v.vendedor_id || v.usuario_id) !== pessoa)) return;
     vendasAt[v.id] = true; A.nVendas++; A.desc += v.desconto_centavos || 0; if (v.desconto_centavos > 0) A.nDesc++; A.fat += v.total_cafe_centavos; A.fatSort += v.total_sorteio_centavos; A.copos += v.copos; A.vendMl += v.ml_cafe;
     add(A.porPag, nomeDe_(formas, v.forma_pagamento_id), v.total_cafe_centavos + v.total_sorteio_centavos);
     add(A.porHora, formatarLocal_(v.data_hora, 'HH'), 1);
+    var vend = v.vendedor_id || v.usuario_id; add(A.fatPess, vend, v.total_cafe_centavos + v.total_sorteio_centavos);
+    if (nomeDe_(formas, v.forma_pagamento_id) === 'Dinheiro') add(A.dinPess, vend, v.total_cafe_centavos + v.total_sorteio_centavos);
   });
   db.t('venda_item').forEach(function (i) { if (!vendasAt[i.venda_id]) return; var tam = i.tamanho_ml != null ? i.tamanho_ml : ((vars[i.variante_id] || {}).tamanho_ml || 0); add(A.porProd, i.variante_id + '|' + tam, i.qtd); add(A.porTam, tam, i.qtd); A.mlServido += i.qtd * tam; A.custoAt += i.custo_copo_centavos || 0; A.custoPad += i.custo_copo_centavos || 0; });   // o copo é custo da venda
   var prepAt = {};
   db.t('preparo').forEach(function (p) {
-    if (p.status !== 'ATIVO' || !dentro(p.dia_local)) return;
+    if (p.status !== 'ATIVO' || !dentro(p.dia_local) || (pessoa && p.usuario_id !== pessoa)) return;
     prepAt[p.id] = true; A.nPrep++; A.litros += p.litros; A.prodMl += p.litros * 1000;
     if (pendente_(p)) A.nPrepPend++; else A.prodMlLanc += p.litros * 1000;
     if (A.pess[p.usuario_id]) { A.pess[p.usuario_id].ml += p.litros * 1000; A.litrosPess[p.usuario_id] += p.litros; }
@@ -242,7 +244,7 @@ function agregados_(db, ts, desde) {
     A.nCompras++; A.gasto += c.valor_total_centavos; add(A.porLocal, nomeDe_(forn, c.fornecedor_id), c.valor_total_centavos);
   });
   var consAt = {};
-  db.t('consumo_proprio').forEach(function (c) { if (c.status === 'ATIVO' && dentro(c.dia_local)) { consAt[c.id] = true; A.consumoMl += c.ml_cafe; A.consumoCopos += c.copos; } });
+  db.t('consumo_proprio').forEach(function (c) { if (c.status === 'ATIVO' && dentro(c.dia_local) && (!pessoa || c.consumidor_id === pessoa)) { consAt[c.id] = true; A.consumoMl += c.ml_cafe; A.consumoCopos += c.copos; } });
   db.t('consumo_proprio_item').forEach(function (i) { if (consAt[i.consumo_id]) { A.custoAt += i.custo_copo_centavos || 0; A.custoPad += i.custo_copo_centavos || 0; } });   // copo usado no consumo nosso também é custo
   // copos pagos x grátis: o desconto cobre primeiro os copos mais baratos; o que cobrir inteiro é "grátis", e o que sobrar num copo é "com desconto"
   var undsPorVenda = {};
@@ -253,7 +255,7 @@ function agregados_(db, ts, desde) {
     (undsPorVenda[v.id] || []).sort(function (a, b) { return a.p - b.p; }).forEach(function (u) { if (d >= u.p && u.p > 0) { A.copGratis++; A.mlGratis += u.ml; d -= u.p; } else if (d > 0) { A.copParcial++; A.mlParcial += u.ml; d = 0; } });
   });
   db.t('ajuste_cafe').forEach(function (a) {
-    if (a.status !== 'ATIVO' || !dentro(a.dia_local)) return;
+    if (a.status !== 'ATIVO' || !dentro(a.dia_local) || (pessoa && a.usuario_id !== pessoa)) return;
     if (a.tipo === 'PERDA') { add(A.perdaMot, nomeDe_(mot, a.motivo_id), -a.ml_cafe); A.perdaMl += -a.ml_cafe; } else A.acertoMl += a.ml_cafe;
   });
   db.t('lancamento_financeiro').forEach(function (l) {
@@ -292,8 +294,11 @@ function produtosETamanhos_(db, A, vars, prods) {
   return itens;
 }
 
-function viewPaineis_(db, ctx, sub, periodo) {
-  var ts = ctx.agora.dataHora, desde = desdeDoPeriodo_(ctx.agora.diaLocal, periodo), A = agregados_(db, ts, desde), est = estadoSorteio_(db, ts), prods = mapa_(db, 'produto');
+/* pessoa (id) filtra só os painéis de venda e destino do café: vendas pelo vendedor, consumo por quem tomou, preparo e perda por quem registrou */
+function pessoaValida_(db, id) { return id && db.t('usuario').some(function (u) { return u.id === id && u.ativo; }) ? id : null; }
+function viewPaineis_(db, ctx, sub, periodo, pessoaPedida) {
+  var pessoa = (sub === 'vendas' || sub === 'destino') ? pessoaValida_(db, pessoaPedida) : null;
+  var ts = ctx.agora.dataHora, desde = desdeDoPeriodo_(ctx.agora.diaLocal, periodo), A = agregados_(db, ts, desde, pessoa), est = estadoSorteio_(db, ts), prods = mapa_(db, 'produto');
   var vars = db.t('produto_variante').filter(ativoOk_), us = A.us;
   var P = { tiles: [], t1: '', b1: [], t2: '', b2: [] };
   function T(l, v) { return { lbl: l, val: nb_(v) }; }
@@ -306,7 +311,9 @@ function viewPaineis_(db, ctx, sub, periodo) {
     var horas = Object.keys(A.porHora).sort();
     P = { tiles: [T('Vendas', String(A.nVendas)), T('Ticket médio', fmtR_(A.nVendas ? A.fat / A.nVendas : 0)), T('Copos', String(A.copos)), T('Copos pagos', String(A.copos - A.copGratis - A.copParcial)), T('Copos grátis', String(A.copGratis)), T('Copos com desconto', String(A.copParcial)), T('Café nas vendas', fmtN_(A.vendMl) + ' ml'), T('Descontos dados', fmtR_(A.desc) + (A.nDesc ? ' \u00B7 ' + A.nDesc + (A.nDesc === 1 ? ' venda' : ' vendas') : ''))],
       t1: 'Vendas por horário', b1: barras_(horas.map(function (h) { return { lbl: h + 'h', n: A.porHora[h] }; }), function (n) { return n + (n === 1 ? ' venda' : ' vendas'); }),
-      t2: 'Copos por tamanho', b2: barras_(Object.keys(A.porTam).map(Number).concat(vars.map(function (v) { return v.tamanho_ml; }).filter(function (t, i, l) { return !A.porTam[t] && l.indexOf(t) === i; })).sort(function (a, b) { return a - b; }).map(function (ml) { return { lbl: ml + ' ml', n: A.porTam[ml] || 0 }; }), nCopos_) };
+      t2: 'Copos por tamanho', b2: barras_(Object.keys(A.porTam).map(Number).concat(vars.map(function (v) { return v.tamanho_ml; }).filter(function (t, i, l) { return !A.porTam[t] && l.indexOf(t) === i; })).sort(function (a, b) { return a - b; }).map(function (ml) { return { lbl: ml + ' ml', n: A.porTam[ml] || 0 }; }), nCopos_),
+      t3: 'Faturamento por quem vendeu', b3: barras_(A.us.filter(function (u) { return !pessoa || u.id === pessoa; }).map(function (u) { return { lbl: u.nome, n: A.fatPess[u.id] || 0 }; }), fmtR_),
+      t4: 'Dinheiro vivo recebido por quem vendeu', b4: barras_(A.us.filter(function (u) { return !pessoa || u.id === pessoa; }).map(function (u) { return { lbl: u.nome, n: A.dinPess[u.id] || 0 }; }), fmtR_) };
   } else if (sub === 'destino') {
     var cPago = A.copos - A.copGratis - A.copParcial, mPago = A.vendMl - A.mlGratis - A.mlParcial, entrou = A.prodMl + A.acertoMl;
     var saiu = A.vendMl + A.consumoMl + A.perdaMl, falta = r3_(entrou - saiu);
@@ -345,21 +352,22 @@ function viewPaineis_(db, ctx, sub, periodo) {
       t1: 'Números vendidos por sorteio', b1: barras_(Object.keys(porRodada).sort(function (a, b) { return a - b; }).map(function (k) { return { lbl: 'Sorteio nº ' + k + (Number(k) === est.rodadaAtual ? ' (atual)' : ''), n: porRodada[k] }; }), function (n) { return n + (n === 1 ? ' número' : ' números'); }),
       t2: 'Progresso do sorteio atual', b2: [{ lbl: 'Sorteio nº ' + est.rodadaAtual, val: nb_(est.nAtivos + ' de ' + est.meta + ' números'), pct: pctMeta }] };
   }
-  return { sub: sub, periodo: periodo, ignoraPeriodo: sub === 'estoque' || sub === 'sorteio', tiles: P.tiles, t1: P.t1, b1: P.b1, t2: P.t2, b2: P.b2 };
+  return { sub: sub, periodo: periodo, ignoraPeriodo: sub === 'estoque' || sub === 'sorteio', tiles: P.tiles, t1: P.t1, b1: P.b1, t2: P.t2, b2: P.b2, t3: P.t3 || null, b3: P.b3 || [], t4: P.t4 || null, b4: P.b4 || [], pessoa: pessoa || '', usuarios: A.us.map(function (u) { return { id: u.id, nome: u.nome }; }), comPessoa: sub === 'vendas' || sub === 'destino' };
 }
 
 /* ---------------- Dia a dia (calendário de operação) ---------------- */
 /* Um dia "teve serviço" se tem venda, preparo ou consumo nosso ativo. Tudo vem do dia_local dos registros; nada é cadastrado à parte. */
 function diaAnterior_(dia) { var d = new Date(dia + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); }
 function diasEntre_(de, ate) { return de > ate ? 0 : Math.round((new Date(ate + 'T00:00:00Z') - new Date(de + 'T00:00:00Z')) / 86400000) + 1; }
-function viewDias_(db, ctx, mesPedido) {
+function viewDias_(db, ctx, mesPedido, pessoaPedida) {
+  var pessoa = pessoaValida_(db, pessoaPedida);
   var hoje = ctx.agora.diaLocal, mesHoje = hoje.slice(0, 7), mes = /^\d{4}-(0[1-9]|1[0-2])$/.test(mesPedido || '') ? mesPedido : mesHoje;
   var dias = {};
   function dia(d) { return dias[d] || (dias[d] = { v: 0, c: 0, f: 0, l: 0, p: 0, k: 0 }); }
-  db.t('venda').forEach(function (v) { if (v.status !== 'ATIVO') return; var x = dia(v.dia_local); x.v++; x.c += v.copos; x.f += v.total_cafe_centavos + v.total_sorteio_centavos; });
-  db.t('preparo').forEach(function (p) { if (p.status === 'ATIVO') dia(p.dia_local).l += p.litros; });
-  db.t('consumo_proprio').forEach(function (c) { if (c.status === 'ATIVO') dia(c.dia_local).k += c.copos; });
-  db.t('ajuste_cafe').forEach(function (a) { if (a.status === 'ATIVO' && a.tipo === 'PERDA') dia(a.dia_local).p += -a.ml_cafe; });
+  db.t('venda').forEach(function (v) { if (v.status !== 'ATIVO' || (pessoa && (v.vendedor_id || v.usuario_id) !== pessoa)) return; var x = dia(v.dia_local); x.v++; x.c += v.copos; x.f += v.total_cafe_centavos + v.total_sorteio_centavos; });
+  db.t('preparo').forEach(function (p) { if (p.status === 'ATIVO' && (!pessoa || p.usuario_id === pessoa)) dia(p.dia_local).l += p.litros; });
+  db.t('consumo_proprio').forEach(function (c) { if (c.status === 'ATIVO' && (!pessoa || c.consumidor_id === pessoa)) dia(c.dia_local).k += c.copos; });
+  db.t('ajuste_cafe').forEach(function (a) { if (a.status === 'ATIVO' && a.tipo === 'PERDA' && (!pessoa || a.usuario_id === pessoa)) dia(a.dia_local).p += -a.ml_cafe; });
   var chaves = Object.keys(dias).sort(), inicio = chaves.length ? chaves[0] : null, ontem = diaAnterior_(hoje);
   /* sem serviço = dia já encerrado, depois do primeiro dia de operação, sem nenhum registro */
   function semServico(de, ate) { if (!inicio) return 0; var a = de < inicio ? inicio : de, b = ate > ontem ? ontem : ate; return Math.max(0, diasEntre_(a, b) - chaves.filter(function (d) { return d >= a && d <= b; }).length); }
@@ -373,7 +381,7 @@ function viewDias_(db, ctx, mesPedido) {
   var nomes = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'], medias = porSem.map(function (s) { return s.dias ? s.copos / s.dias : 0; }), mx = Math.max.apply(null, [1].concat(medias));
   var mesDoDia = {}; doMes.forEach(function (d) { mesDoDia[d] = dias[d]; });
   return {
-    sub: 'dias', mes: mes, hoje: hoje, mesHoje: mesHoje, primeiroMes: inicio ? inicio.slice(0, 7) : mesHoje, dias: mesDoDia,
+    sub: 'dias', pessoa: pessoa || '', usuarios: db.t('usuario').filter(ativoOk_).map(function (u) { return { id: u.id, nome: u.nome }; }), mes: mes, hoje: hoje, mesHoje: mesHoje, primeiroMes: inicio ? inicio.slice(0, 7) : mesHoje, dias: mesDoDia,
     tiles: [
       { lbl: 'Dias com serviço', val: nb_(String(doMes.length)) },
       { lbl: 'Dias sem serviço', val: nb_(String(semServico(primeiro, ultimo))) },
@@ -480,7 +488,7 @@ function viewHistorico_(db, ctx) {
     var e = est[tabela + ':' + r.id];
     linhas.push({ tabela: tabela, id: r.id, numero: r.numero || r.rodada, quando: r.data_hora, tipo: tipo, resumo: nb_(resumo), meta: dm_(r.data_hora) + ' \u00B7 ' + nomeDe_(us, r.usuario_id || r.criado_por), status: r.status, estornadoPor: e ? nomeDe_(us, e.usuario_id) : null, estornadoEm: e ? dm_(e.data_hora) : null });
   }
-  db.t('venda').forEach(function (v) { push('venda', v, 'VENDA', textoVenda_(v, ipv) + ' \u00B7 ' + fmtR_(v.total_cafe_centavos + v.total_sorteio_centavos) + ' \u00B7 ' + nomeDe_(formas, v.forma_pagamento_id)); });
+  db.t('venda').forEach(function (v) { push('venda', v, 'VENDA', textoVenda_(v, ipv) + ' \u00B7 ' + fmtR_(v.total_cafe_centavos + v.total_sorteio_centavos) + ' \u00B7 ' + nomeDe_(formas, v.forma_pagamento_id) + (v.vendedor_id && v.vendedor_id !== v.usuario_id ? ' \u00B7 vendeu ' + nomeDe_(us, v.vendedor_id) : '')); });
   db.t('preparo').forEach(function (p) { push('preparo', p, 'PREPARO', fmtN_(p.litros) + ' L de ' + (p.base === 'CAFE_LEITE' ? 'café com leite' : 'café') + ' preparados por ' + nomeDe_(us, p.usuario_id)); });
   db.t('compra').forEach(function (c) { var i = ci[c.id], m = i ? mats[i.material_id] : null; push('compra', c, 'COMPRA', (m ? m.nome + ' ' + fmtN_(i.qtd_base_qtd) + ' ' + m.unidade : 'Compra') + ' \u00B7 ' + fmtR_(c.valor_total_centavos) + ' \u00B7 ' + nomeDe_(forn, c.fornecedor_id)); });
   db.t('ajuste_cafe').forEach(function (a) { push('ajuste_cafe', a, a.tipo === 'PERDA' ? 'PERDA DE CAFÉ' : 'AJUSTE DE CAFÉ', a.tipo === 'PERDA' ? fmtN_(-a.ml_cafe) + ' ml \u00B7 ' + nomeDe_(mot, a.motivo_id) : '+' + fmtN_(a.ml_cafe) + ' ml de café \u00B7 preparo não lançado'); });

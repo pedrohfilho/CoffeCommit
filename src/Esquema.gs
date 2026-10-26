@@ -10,7 +10,7 @@
  */
 var VERSAO_ESQUEMA = 1;
 /* sobe quando a instalação passa a fazer algo novo (ex.: formatar as linhas). O app recusa trabalhar até rodar "Instalar / atualizar". */
-var VERSAO_INSTALACAO_ = 11;
+var VERSAO_INSTALACAO_ = 12;
 var INICIO_VIGENCIA = '2000-01-01T00:00:00.000Z';
 
 var AUDITORIA_ = 'criado_em:dt, criado_por:id>usuario, atualizado_em:dt?, atualizado_por:id>usuario?, versao:int';
@@ -37,7 +37,7 @@ var DEF_ESQUEMA_ = [
   ['preparo', 'movimento', 'Preparos na cafeteira. O consumo sai do estoque de quem preparou', 'id:id*, numero:int#, usuario_id:id>usuario, registrado_por:id>usuario, data_hora:dt, dia_local:dia, litros:qtd, ml_cafe:qtd, receita_id:id>receita_cafe, status:' + STATUS_, 1, 'materiais_status:enum(PENDENTE|LANCADO), base:enum(CAFE|CAFE_LEITE)'],
   ['preparo_consumo', 'movimento', 'Materiais consumidos por preparo (padrão x real) com custo gravado', 'id:id*, preparo_id:id>preparo, material_id:id>material, qtd_padrao_qtd:qtd, qtd_real_qtd:qtd, custo_atual_centavos:cent, custo_padrao_centavos:cent', 0],
   ['preparo_plano', 'movimento', 'Copos que se pretende servir em cada preparo', 'id:id*, preparo_id:id>preparo, variante_id:id>produto_variante, copos:int', 0],
-  ['venda', 'movimento', 'Vendas. total_cafe_centavos é o valor cobrado do café (já com o desconto manual, se houve). Baixam o café pronto do dia e o copo (do estoque de quem registrou)', 'id:id*, numero:int#, usuario_id:id>usuario, data_hora:dt, dia_local:dia, forma_pagamento_id:id>forma_pagamento, cliente_id:id>cliente?, copos:int, ml_cafe:qtd, total_cafe_centavos:cent, total_sorteio_centavos:cent, status:' + STATUS_, 1, 'desconto_centavos:cent, promocao_id:id>promocao?'],
+  ['venda', 'movimento', 'Vendas. total_cafe_centavos é o valor cobrado do café (já com o desconto manual, se houve). Baixam o café pronto do dia e o copo (do estoque de quem vendeu). usuario_id é quem registrou; vendedor_id é quem vendeu e ficou com o dinheiro', 'id:id*, numero:int#, usuario_id:id>usuario, data_hora:dt, dia_local:dia, forma_pagamento_id:id>forma_pagamento, cliente_id:id>cliente?, copos:int, ml_cafe:qtd, total_cafe_centavos:cent, total_sorteio_centavos:cent, status:' + STATUS_, 1, 'desconto_centavos:cent, promocao_id:id>promocao?, vendedor_id:id>usuario?'],
   ['venda_item', 'movimento', 'Itens da venda, com preço, café, tamanho e copo gravados no momento (o custo do copo fica no item)', 'id:id*, venda_id:id>venda, variante_id:id>produto_variante, qtd:int, preco_unit_centavos:cent, ml_cafe_unit:qtd', 0, 'tamanho_ml:int, copo_material_id:id>material?, custo_copo_centavos:cent'],
   ['consumo_proprio', 'movimento', 'Café tomado por nós, registrado na hora. Sai do café pronto, não é venda e não tem cobrança', 'id:id*, numero:int#, usuario_id:id>usuario, consumidor_id:id>usuario, data_hora:dt, dia_local:dia, copos:int, ml_cafe:qtd, observacao:texto?, status:' + STATUS_, 1],
   ['consumo_proprio_item', 'movimento', 'Itens do consumo próprio, com o café e o tamanho do copo gravados no momento', 'id:id*, consumo_id:id>consumo_proprio, variante_id:id>produto_variante, qtd:int, ml_cafe_unit:qtd, tamanho_ml:int', 0, 'copo_material_id:id>material?, custo_copo_centavos:cent'],

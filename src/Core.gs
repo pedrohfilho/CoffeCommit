@@ -245,6 +245,7 @@ function cmdVenda_(db, ctx, p) {
   var ts = ctx.agora.dataHora, dia = ctx.agora.diaLocal;
   var forma = mapa_(db, 'forma_pagamento')[p.forma_pagamento_id];
   if (!forma || !forma.ativo) falha_('Escolha a forma de pagamento.');
+  var vendedor = usuarioAtivo_(db, p.vendedor_id || ctx.usuarioId);   // quem vendeu pode ser outra pessoa; quem registra fica em usuario_id
   var vars = mapa_(db, 'produto_variante'), mats = mapa_(db, 'material'), cu = custosUnitarios_(db), itens = [], copos = 0, ml = 0, total = 0;
   Object.keys(p.itens || {}).forEach(function (vid) {
     var q = parseInt(p.itens[vid], 10);
@@ -274,7 +275,7 @@ function cmdVenda_(db, ctx, p) {
   var precoNum = nSort ? estadoSorteio_(db, ts).preco : 0, totalSort = nSort * precoNum;   // venda sem números nem toca no sorteio
   var saldoAntes = cafeDoDia_(db, dia).saldo;
   var vendaId = p.id, numero = db.proximoNumero('venda');
-  var venda = nova_(ctx, { id: vendaId, numero: numero, usuario_id: ctx.usuarioId, data_hora: ts, dia_local: dia, forma_pagamento_id: forma.id, cliente_id: cliente ? cliente.id : null, copos: copos, ml_cafe: r3_(ml), total_cafe_centavos: total - desconto, total_sorteio_centavos: totalSort, status: 'ATIVO', desconto_centavos: desconto, promocao_id: promo ? promo.id : null });
+  var venda = nova_(ctx, { id: vendaId, numero: numero, usuario_id: ctx.usuarioId, data_hora: ts, dia_local: dia, forma_pagamento_id: forma.id, cliente_id: cliente ? cliente.id : null, copos: copos, ml_cafe: r3_(ml), total_cafe_centavos: total - desconto, total_sorteio_centavos: totalSort, status: 'ATIVO', desconto_centavos: desconto, promocao_id: promo ? promo.id : null, vendedor_id: vendedor.id });
   var filhos = [];
   filhos.push({ tabela: 'venda_item', linhas: itens.map(function (i) { return Object.assign({ id: novoId_(), venda_id: vendaId }, i); }) });
   var nums = [];
@@ -288,13 +289,13 @@ function cmdVenda_(db, ctx, p) {
     filhos.push({ tabela: 'numero_sorteio', linhas: nums });
   }
   if (ml > 0) filhos.push({ tabela: 'movimento_cafe', linhas: [{ id: novoId_(), tipo: 'VENDA', ml_cafe: -r3_(ml), data_hora: ts, dia_local: dia, origem_tabela: 'venda', origem_id: vendaId, estorno_de_id: null }] });
-  var lc = linhasDeCopos_(db, ctx.usuarioId, itens, 'VENDA', 'venda', vendaId, ts, dia, mats);
+  var lc = linhasDeCopos_(db, vendedor.id, itens, 'VENDA', 'venda', vendaId, ts, dia, mats);
   if (lc.led.length) filhos.push({ tabela: 'movimento_estoque', linhas: lc.led });
   db.gravar({ mae: { tabela: 'venda', obj: venda }, filhos: filhos });
   var msg = 'Venda registrada \u00B7 ' + fmtR_(total - desconto + totalSort) + (desconto > 0 ? ' (desconto de ' + fmtR_(desconto) + (promo ? ' \u00B7 ' + promo.nome : '') + ')' : '');
   var passou = ml > saldoAntes + 1e-9;
   if (passou) msg = 'Venda registrada, mas passou do café preparado. Registre o preparo que faltou ou ajuste no Fechamento.';
-  if (lc.negativos.length) msg += avisoFalta_(lc.negativos, 'esta venda');
+  if (lc.negativos.length) msg += avisoFalta_(lc.negativos, 'esta venda (' + vendedor.nome + ')');
   return { msg: msg, passou: passou, atencao: lc.negativos.length > 0, ticket: nSort ? ticketDaVenda_(db, vendaId) : null, numero: numero };
 }
 
@@ -473,7 +474,7 @@ function cmdConsumo_(db, ctx, p) {
   if (!itens.length) falha_('Escolha o que foi tomado.');
   var saldoAntes = cafeDoDia_(db, dia).saldo, numero = db.proximoNumero('consumo_proprio'), cid = p.id;
   var cab = nova_(ctx, { id: cid, numero: numero, usuario_id: ctx.usuarioId, consumidor_id: quem.id, data_hora: ts, dia_local: dia, copos: copos, ml_cafe: r3_(ml), observacao: null, status: 'ATIVO' });
-  var lc = linhasDeCopos_(db, ctx.usuarioId, itens, 'CONSUMO', 'consumo_proprio', cid, ts, dia, mats);
+  var lc = linhasDeCopos_(db, quem.id, itens, 'CONSUMO', 'consumo_proprio', cid, ts, dia, mats);
   var filhos = [
     { tabela: 'consumo_proprio_item', linhas: itens.map(function (i) { return Object.assign({ id: novoId_(), consumo_id: cid }, i); }) },
     { tabela: 'movimento_cafe', linhas: [{ id: novoId_(), tipo: 'CONSUMO', ml_cafe: -r3_(ml), data_hora: ts, dia_local: dia, origem_tabela: 'consumo_proprio', origem_id: cid, estorno_de_id: null }] }
@@ -584,7 +585,7 @@ function cmdEstornar_(db, ctx, p) {
   invE.forEach(function (m) {
     var u = sal[m.usuario_id] = sal[m.usuario_id] || {};
     u[m.material_id] = r3_((u[m.material_id] || 0) - m.qtd);
-    if (!ctx.semChecagemEstoque && u[m.material_id] < -1e-9) falha_('Não dá para desfazer: o estoque de ' + mats[m.material_id].nome + ' ficaria negativo.');
+    if (m.qtd > 0 && !ctx.semChecagemEstoque && u[m.material_id] < -1e-9) falha_('Não dá para desfazer: o estoque de ' + mats[m.material_id].nome + ' ficaria negativo.');
   });
   var linhasE = invE.map(function (m) { return { id: novoId_(), usuario_id: m.usuario_id, material_id: m.material_id, tipo: 'ESTORNO', qtd: -m.qtd, data_hora: ts, dia_local: dia, origem_tabela: m.origem_tabela, origem_id: m.origem_id, estorno_de_id: m.id }; });
   var linhasC = invC.map(function (m) { return { id: novoId_(), tipo: 'ESTORNO', ml_cafe: -m.ml_cafe, data_hora: ts, dia_local: m.dia_local, origem_tabela: m.origem_tabela, origem_id: m.origem_id, estorno_de_id: m.id }; });

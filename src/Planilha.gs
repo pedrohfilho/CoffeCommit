@@ -301,6 +301,7 @@ function preencherColunaNova_(sh, def, coluna, ss) {
     sh.getRange(2, idx, n, 1).setValues(vars.map(function (r) { return [tam[r[0]] || '']; }));
   }
   if ((def.nome === 'venda_item' || def.nome === 'consumo_proprio_item') && coluna === 'custo_copo_centavos') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return [0]; }));   // o copo dos registros antigos saiu no preparo
+  if (def.nome === 'venda' && coluna === 'vendedor_id') { var iu = def.colunas.map(function (c) { return c.nome; }).indexOf('usuario_id') + 1; sh.getRange(2, idx, n, 1).setValues(sh.getRange(2, iu, n, 1).getValues()); }   // venda antiga: quem registrou foi quem vendeu
   if (def.nome === 'receita_cafe' && coluna === 'base') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return ['CAFE']; }));
   if (def.nome === 'receita_cafe' && coluna === 'g_por_colher_acucar') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return [10]; }));
   if (def.nome === 'receita_cafe' && coluna === 'g_por_colher_canela') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return [3]; }));

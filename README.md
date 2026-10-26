@@ -263,6 +263,8 @@ Desfazer cria uma linha em `estorno`, muda o status do registro para `ESTORNADO`
 
 **O copo só tem café.** O leite do café com leite entra no **preparo**, nunca no copo: um copo de 100 ml é 100 ml do produto, e o consumo de leite sai da receita do preparo. O tamanho do copo é editável (Cadastros › Produtos e preços): mudar vale daqui para frente, e cada venda guarda o tamanho da época. O café pronto e o estoque usam sempre esse volume.
 
+**Quem vendeu.** A venda guarda duas pessoas: `usuario_id` (quem registrou) e `vendedor_id` (quem vendeu e ficou com o dinheiro). Na tela de Venda, "Vendido por" escolhe o vendedor (o cartão fica laranja quando não é você), para quando um registra a venda do outro. O copo sai do estoque de quem vendeu. Os painéis de Vendas e de Destino do café e o Dia a dia têm filtro por pessoa, e o painel de Vendas mostra o faturamento e o dinheiro vivo de cada um.
+
 **Copo descartável.** O copo sai do estoque **na venda** (também na venda grátis) e no consumo, do estoque de quem registrou, e não mais no preparo, para não contar duas vezes. O copo e o custo dele ficam gravados no item, e o Resultado conta esse custo. Sem copo no estoque, a venda é registrada e o sistema só avisa.
 
 ---
@@ -312,7 +314,7 @@ O simulador reproduz detalhes que costumam esconder bugs no Planilhas real: text
 
 ## Qualidade
 
-- **624 verificações automáticas** das regras: venda, preparo, compra, estoque, fechamento, estorno, sorteio, desconto, consumo, painéis, auditoria, DDL e migração de planilhas já instaladas.
+- **645 verificações automáticas** das regras: venda, preparo, compra, estoque, fechamento, estorno, sorteio, desconto, consumo, painéis, auditoria, DDL e migração de planilhas já instaladas.
 - **Painéis conferidos contra os registros:** os testes recalculam cada número de cada painel direto das linhas e comparam com a tela.
 - **Teste diferencial do cache:** depois de cada uma de mais de vinte operações, todas as telas lidas com cache são comparadas com as lidas direto da planilha e precisam ser idênticas. Cache sumindo, corrompido ou falhando também não pode mudar resultado.
 - **Orçamento de chamadas:** os testes falham se uma gravação passar de 8 chamadas à planilha ou se abrir uma tela já vista tocar na planilha.

@@ -1376,6 +1376,61 @@ grupo('destino do café: vendido, grátis, com desconto, consumo e perda');
   ok(vv.ok && tl(vv, 'Vendido (pago)') === '0 copos · 0 ml' && tl(vv, 'Ainda sem destino') === '0 ml', 'sem nenhum registro: tudo zero, sem erro');
 }
 
+grupo('quem vendeu: vendedor, copo e painéis por pessoa');
+{
+  const T = iniciar({ exemplos: true });
+  const lim = (s) => String(s).replace(/\u00A0/g, ' ');
+  const est = (u, m) => T.ctx.saldosEstoque_(T.db())[u][m] || 0;
+  const tl = (v, l) => lim(v.tiles.find((x) => x.lbl === l).val);
+  const painel = (sub, pessoa) => T.ch(T.pedro, 'ver', { tela: 'paineis', sub: sub, periodo: 'tudo', pessoa: pessoa });
+  ok(T.db().t('venda').every((v) => v.vendedor_id === v.usuario_id), 'as vendas dos exemplos têm como vendedor quem registrou');
+  const id = T.uid(), dig0 = est('usr-digo', 'mat-copo50'), ped0 = est('usr-pedro', 'mat-copo50');
+  const r = T.ch(T.pedro, 'venda.registrar', { id: id, itens: { 'var-n50': 2 }, forma_pagamento_id: 'fp-dinheiro', vendedor_id: 'usr-digo' });
+  const v1 = T.db().achar('venda', id);
+  ok(r.ok && v1.usuario_id === 'usr-pedro' && v1.vendedor_id === 'usr-digo', 'o Pedro registra a venda do Digo: usuario_id = quem registrou, vendedor_id = quem vendeu', v1);
+  ok(est('usr-digo', 'mat-copo50') === dig0 - 2 && est('usr-pedro', 'mat-copo50') === ped0 && r.atencao && /\(Digo\)/.test(r.msg), 'o copo sai do estoque de quem vendeu (Digo), e o aviso de falta cita o Digo', [est('usr-digo', 'mat-copo50'), r.msg]);
+  ok(/Pessoa inválida/.test(T.ch(T.pedro, 'venda.registrar', { id: T.uid(), itens: { 'var-n50': 1 }, forma_pagamento_id: 'fp-pix', vendedor_id: 'usr-fantasma' }).erro) && /Pessoa inválida/.test(T.ch(T.pedro, 'venda.registrar', { id: T.uid(), itens: { 'var-n50': 1 }, forma_pagamento_id: 'fp-pix', vendedor_id: 'usr-sistema' }).erro), 'vendedor que não existe ou está inativo é recusado');
+  const sem = T.ch(T.pedro, 'venda.registrar', { id: T.uid(), itens: { 'var-n100': 1 }, forma_pagamento_id: 'fp-pix' });
+  ok(sem.ok && T.db().t('venda').slice(-1)[0].vendedor_id === 'usr-pedro', 'sem dizer quem vendeu, vale quem registrou');
+  // painéis por pessoa, conferidos contra os registros
+  const vA = T.db().t('venda').filter((v) => v.status === 'ATIVO'), por = (u) => vA.filter((v) => v.vendedor_id === u);
+  const soma = (a, f) => a.reduce((s, x) => s + f(x), 0), fR = (c) => lim(T.ctx.fmtR_(c));
+  const todos = painel('vendas'), ped = painel('vendas', 'usr-pedro'), dig = painel('vendas', 'usr-digo');
+  ok(tl(todos, 'Vendas') === String(vA.length) && tl(ped, 'Vendas') === String(por('usr-pedro').length) && tl(dig, 'Vendas') === String(por('usr-digo').length) && por('usr-pedro').length + por('usr-digo').length === vA.length, 'Vendas por pessoa: cada um vê só o que vendeu e a soma fecha', [tl(todos, 'Vendas'), tl(ped, 'Vendas'), tl(dig, 'Vendas')]);
+  const fat = (a) => soma(a, (v) => v.total_cafe_centavos + v.total_sorteio_centavos), barra = (lista, l) => lim(lista.find((b) => b.lbl === l).val);
+  ok(barra(todos.b3, 'Pedro') === fR(fat(por('usr-pedro'))) && barra(todos.b3, 'Digo') === fR(fat(por('usr-digo'))), 'Faturamento por quem vendeu bate com os registros', todos.b3);
+  const din = (u) => fat(por(u).filter((v) => v.forma_pagamento_id === 'fp-dinheiro'));
+  ok(barra(todos.b4, 'Pedro') === fR(din('usr-pedro')) && barra(todos.b4, 'Digo') === fR(din('usr-digo')) && din('usr-digo') === 200, 'Dinheiro vivo por pessoa: a venda do Digo registrada pelo Pedro conta para o Digo (R$ 2,00)', todos.b4);
+  ok(dig.b3.length === 1 && dig.b3[0].lbl === 'Digo' && dig.pessoa === 'usr-digo' && dig.comPessoa && dig.usuarios.length === 2, 'filtrando por uma pessoa, só ela aparece nas barras');
+  ok(painel('vendas', 'xxx').pessoa === '' && tl(painel('vendas', 'xxx'), 'Vendas') === String(vA.length), 'pessoa que não existe é ignorada (mostra todos)');
+  ok(painel('geral', 'usr-digo').pessoa === '' && tl(painel('geral', 'usr-digo'), 'Copos vendidos') === String(soma(vA, (v) => v.copos)), 'o painel Geral não filtra por pessoa');
+  const dd = painel('destino', 'usr-digo'), dp = painel('destino', 'usr-pedro');
+  const cop = (a) => soma(a, (v) => v.copos);
+  ok(tl(dd, 'Total nas vendas') === cop(por('usr-digo')) + (cop(por('usr-digo')) === 1 ? ' copo' : ' copos') + ' · ' + T.ctx.fmtN_(soma(por('usr-digo'), (v) => v.ml_cafe)) + ' ml' && tl(dp, 'Total nas vendas').startsWith(cop(por('usr-pedro')) + ' copos'), 'Destino do café por pessoa: o total nas vendas de cada um', [tl(dd, 'Total nas vendas'), tl(dp, 'Total nas vendas')]);
+  ok(tl(dd, 'Preparado') === '0 ml' && tl(dp, 'Preparado') === '1.500 ml', 'o café preparado conta para quem preparou (Pedro 1.500 ml, Digo 0)', [tl(dd, 'Preparado'), tl(dp, 'Preparado')]);
+  T.ch(T.digo, 'consumo.registrar', { id: T.uid(), itens: { 'var-n50': 1 }, consumidor_id: 'usr-digo' });
+  ok(tl(painel('destino', 'usr-digo'), 'Consumo nosso') === '1 copo · 50 ml' && tl(painel('destino', 'usr-pedro'), 'Consumo nosso') === '0 copos · 0 ml', 'consumo conta para quem tomou');
+  // calendário por pessoa
+  const dias = (p) => T.ch(T.pedro, 'ver', { tela: 'paineis', sub: 'dias', pessoa: p });
+  const cD = dias('usr-digo'), cP = dias('usr-pedro'), cT = dias();
+  const copD = Object.keys(cD.dias).reduce((s, d) => s + cD.dias[d].c, 0), copP = Object.keys(cP.dias).reduce((s, d) => s + cP.dias[d].c, 0), copT = Object.keys(cT.dias).reduce((s, d) => s + cT.dias[d].c, 0);
+  ok(cD.pessoa === 'usr-digo' && copD === cop(por('usr-digo')) && copP === cop(por('usr-pedro')) && copD + copP === copT, 'Dia a dia por pessoa: os copos de cada um somam o total', [copD, copP, copT]);
+  ok(dias('lixo').pessoa === '' && cT.usuarios.length === 2, 'pessoa inválida no calendário é ignorada');
+  // histórico e desfazer
+  const h = ver(T, T.pedro, 'historico').linhas.find((l) => l.tabela === 'venda' && l.id === id);
+  ok(h && /vendeu Digo/.test(h.resumo), 'o histórico mostra que a venda foi do Digo, registrada pelo Pedro', h && h.resumo);
+  ok(ver(T, T.pedro, 'venda').ultimas.some((u) => u.id === id && u.usuario === 'Digo'), 'as últimas vendas mostram quem vendeu');
+  const antesU = est('usr-digo', 'mat-copo50');
+  ok(T.ch(T.pedro, 'estornar', { tabela: 'venda', id: id }).ok && est('usr-digo', 'mat-copo50') === antesU + 2, 'desfazer a venda devolve o copo ao estoque do Digo (mesmo com o saldo dele negativo)');
+  ok(T.ch(T.pedro, 'sistema.auditar').limpo, 'auditoria limpa');
+  // planilha instalada antes: quem registrou passa a ser o vendedor
+  const T3 = iniciar({ exemplos: true }), shV = T3.ss.getSheetByName('venda'), nV = T3.ctx.esquemaTabela_('venda').colunas.length;
+  shV.getRange(1, nV).setValue(''); shV.getRange(2, nV, 6, 1).clearContent();
+  T3.ctx.instalarPlanilha_(T3.ss, new Date().toISOString());
+  const vs = new T3.ctx.Banco(T3.ss, { semCache: true }).t('venda');
+  ok(vs.length === 5 && vs.every((x) => x.vendedor_id === x.usuario_id) && T3.ch(T3.pedro, 'sistema.auditar').limpo, 'planilha antiga: o vendedor das vendas existentes é quem registrou, e a auditoria segue limpa', vs.map((x) => x.vendedor_id));
+}
+
 grupo('dia a dia: dias com e sem serviço');
 {
   const T = iniciar({ exemplos: true });
