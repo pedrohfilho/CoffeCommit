@@ -27,7 +27,7 @@ function ver_(db, ctx, q) {
     case 'compra': return viewCompra_(db, ctx);
     case 'fechamento': return viewFechamento_(db, ctx);
     case 'estoque': return viewEstoque_(db, ctx, q.sub || 'saldos');
-    case 'paineis': return viewPaineis_(db, ctx, q.sub || 'geral', q.periodo || 'tudo');
+    case 'paineis': return q.sub === 'dias' ? viewDias_(db, ctx, q.mes) : viewPaineis_(db, ctx, q.sub || 'geral', q.periodo || 'tudo');
     case 'cadastros': return viewCadastros_(db, ctx, q.sub || 'materiais');
     case 'financeiro': return viewFinanceiro_(db, ctx, q.sub || 'resultado');
     case 'clientes': return viewClientes_(db, ctx, q.sub || 'lista', q.q || '');
@@ -334,6 +334,45 @@ function viewPaineis_(db, ctx, sub, periodo) {
       t2: 'Progresso do sorteio atual', b2: [{ lbl: 'Sorteio nº ' + est.rodadaAtual, val: nb_(est.nAtivos + ' de ' + est.meta + ' números'), pct: pctMeta }] };
   }
   return { sub: sub, periodo: periodo, ignoraPeriodo: sub === 'estoque' || sub === 'sorteio', tiles: P.tiles, t1: P.t1, b1: P.b1, t2: P.t2, b2: P.b2 };
+}
+
+/* ---------------- Dia a dia (calendário de operação) ---------------- */
+/* Um dia "teve serviço" se tem venda, preparo ou consumo nosso ativo. Tudo vem do dia_local dos registros; nada é cadastrado à parte. */
+function diaAnterior_(dia) { var d = new Date(dia + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); }
+function diasEntre_(de, ate) { return de > ate ? 0 : Math.round((new Date(ate + 'T00:00:00Z') - new Date(de + 'T00:00:00Z')) / 86400000) + 1; }
+function viewDias_(db, ctx, mesPedido) {
+  var hoje = ctx.agora.diaLocal, mesHoje = hoje.slice(0, 7), mes = /^\d{4}-(0[1-9]|1[0-2])$/.test(mesPedido || '') ? mesPedido : mesHoje;
+  var dias = {};
+  function dia(d) { return dias[d] || (dias[d] = { v: 0, c: 0, f: 0, l: 0, p: 0, k: 0 }); }
+  db.t('venda').forEach(function (v) { if (v.status !== 'ATIVO') return; var x = dia(v.dia_local); x.v++; x.c += v.copos; x.f += v.total_cafe_centavos + v.total_sorteio_centavos; });
+  db.t('preparo').forEach(function (p) { if (p.status === 'ATIVO') dia(p.dia_local).l += p.litros; });
+  db.t('consumo_proprio').forEach(function (c) { if (c.status === 'ATIVO') dia(c.dia_local).k += c.copos; });
+  db.t('ajuste_cafe').forEach(function (a) { if (a.status === 'ATIVO' && a.tipo === 'PERDA') dia(a.dia_local).p += -a.ml_cafe; });
+  var chaves = Object.keys(dias).sort(), inicio = chaves.length ? chaves[0] : null, ontem = diaAnterior_(hoje);
+  /* sem serviço = dia já encerrado, depois do primeiro dia de operação, sem nenhum registro */
+  function semServico(de, ate) { if (!inicio) return 0; var a = de < inicio ? inicio : de, b = ate > ontem ? ontem : ate; return Math.max(0, diasEntre_(a, b) - chaves.filter(function (d) { return d >= a && d <= b; }).length); }
+  var primeiro = mes + '-01', ultimo = mes + '-' + String(new Date(Date.UTC(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0)).getUTCDate()).padStart(2, '0');
+  var doMes = chaves.filter(function (d) { return d >= primeiro && d <= ultimo; });
+  var copos = soma_(doMes, function (d) { return dias[d].c; }), fat = soma_(doMes, function (d) { return dias[d].f; });
+  var melhor = null; doMes.forEach(function (d) { if (dias[d].c > 0 && (!melhor || dias[d].c >= dias[melhor].c)) melhor = d; });
+  var vendeu = doMes.filter(function (d) { return dias[d].c > 0; }).length;
+  var porSem = [0, 1, 2, 3, 4, 5, 6].map(function () { return { copos: 0, dias: 0 }; });
+  chaves.forEach(function (d) { if (dias[d].c <= 0) return; var w = new Date(d + 'T00:00:00Z').getUTCDay(); porSem[w].copos += dias[d].c; porSem[w].dias++; });
+  var nomes = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'], medias = porSem.map(function (s) { return s.dias ? s.copos / s.dias : 0; }), mx = Math.max.apply(null, [1].concat(medias));
+  var mesDoDia = {}; doMes.forEach(function (d) { mesDoDia[d] = dias[d]; });
+  return {
+    sub: 'dias', mes: mes, hoje: hoje, mesHoje: mesHoje, primeiroMes: inicio ? inicio.slice(0, 7) : mesHoje, dias: mesDoDia,
+    tiles: [
+      { lbl: 'Dias com serviço', val: nb_(String(doMes.length)) },
+      { lbl: 'Dias sem serviço', val: nb_(String(semServico(primeiro, ultimo))) },
+      { lbl: 'Copos no mês', val: nb_(String(copos)) },
+      { lbl: 'Média por dia de venda', val: nb_(vendeu ? fmtN_(copos / vendeu) + ' copos' : '—') }
+    ],
+    melhor: melhor ? { dia: melhor, copos: dias[melhor].c, fat: dias[melhor].f } : null,
+    fatMes: fat,
+    total: { comServico: chaves.length, semServico: semServico('0000-01-01', '9999-12-31'), inicio: inicio },
+    semana: nomes.map(function (n, i) { return { lbl: n, val: nb_(porSem[i].dias ? fmtN_(medias[i]) + ' copos por dia · ' + porSem[i].dias + (porSem[i].dias === 1 ? ' dia' : ' dias') : 'sem venda'), pct: porSem[i].dias ? Math.max(2, Math.round(medias[i] / mx * 100)) : 0 }; })
+  };
 }
 
 /* ---------------- Cadastros ---------------- */

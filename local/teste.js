@@ -1275,10 +1275,55 @@ grupo('açúcar em colher: gramas de cada colher na receita');
   ok(T3.ch(T3.pedro, 'sistema.auditar').limpo && T.ch(T.pedro, 'sistema.auditar').limpo, 'auditoria limpa');
 }
 
+grupo('dia a dia: dias com e sem serviço');
+{
+  const T = iniciar({ exemplos: true });
+  const dias = (mes) => T.ch(T.pedro, 'ver', { tela: 'paineis', sub: 'dias', mes: mes });
+  const d0 = H(T);
+  let v = dias();
+  const A = T.ctx.agregados_(T.db(), T.ctx.AGORA_TESTE().dataHora, null);
+  const soma = (campo) => Object.keys(v.dias).reduce((s, d) => s + v.dias[d][campo], 0);
+  ok(v.ok && v.mes === d0.slice(0, 7) && v.hoje === d0 && v.total.inicio === d0, 'abre no mês de hoje e o primeiro dia é o dos exemplos', [v.mes, v.total.inicio]);
+  ok(soma('c') === A.copos && soma('f') === A.fat + A.fatSort && Math.abs(soma('l') - A.litros) < 1e-9 && soma('v') === A.nVendas, 'copos, faturamento, litros e vendas do calendário batem com os painéis', [soma('c'), A.copos, soma('f'), A.fat + A.fatSort]);
+  ok(v.total.comServico === 1 && v.total.semServico === 0 && v.melhor.dia === d0 && v.melhor.copos === A.copos, 'um dia com serviço, nenhum sem serviço; o melhor dia é o único', v.total);
+  ok(v.tiles[0].val === '1' && v.tiles[1].val === '0', 'tiles: 1 dia com serviço e 0 sem');
+  T.avancar(60 * 24 * 3);   // 3 dias depois, sem registrar nada
+  v = dias();
+  ok(v.hoje !== d0 && v.total.comServico === 1 && v.total.semServico === 2, 'dois dias já encerrados sem registro contam como sem serviço; hoje ainda não conta', v.total);
+  const vd = venda(T, T.pedro, { 'var-n50': 1 });
+  v = dias();
+  ok(vd.ok && v.dias[v.hoje].c === 1 && v.dias[v.hoje].v === 1 && v.total.comServico === 2 && v.total.semServico === 2, 'vender hoje cria o dia com serviço', v.total);
+  T.avancar(60 * 24 * 2);   // hoje + 2: o dia seguinte à venda passa em branco
+  v = dias();
+  ok(v.total.comServico === 2 && v.total.semServico === 3, 'o dia da venda e o primeiro dia contam; os 3 em branco são sem serviço', v.total);
+  ok(v.tiles[1].val === '3' && v.tiles[0].val === '2', 'tiles do mês: 2 com serviço e 3 sem');
+  const idv = T.db().t('venda').slice(-1)[0].id;
+  ok(T.ch(T.pedro, 'estornar', { tabela: 'venda', id: idv }).ok, 'desfaz a venda');
+  v = dias();
+  ok(v.total.comServico === 1 && v.total.semServico === 4, 'dia só com venda desfeita deixa de ser dia com serviço', v.total);
+  const w = v.semana, dow = new Date(d0 + 'T00:00:00Z').getUTCDay();
+  ok(w.length === 7 && w[dow].pct === 100 && /copos por dia/.test(w[dow].val) && w.filter((x, i) => i !== dow).every((x) => x.val === 'sem venda' && x.pct === 0), 'média por dia da semana: só o dia das vendas aparece', w);
+  const ant = dias('2026-09');
+  ok(ant.ok && ant.mes === '2026-09' && Object.keys(ant.dias).length === 0 && ant.tiles[0].val === '0' && ant.tiles[1].val === '0' && ant.melhor === null, 'mês antes do primeiro dia: nada, e não conta como sem serviço');
+  ok(dias('lixo').mes === v.mes && dias('2026-13').mes === v.mes, 'mês inválido volta para o mês de hoje');
+  ok(v.primeiroMes === d0.slice(0, 7) && v.mesHoje === v.hoje.slice(0, 7), 'tela sabe o primeiro mês e o mês de hoje (para os botões de mês)');
+  // mês de 30 dias com serviço em um único dia: os outros 29 já encerrados são sem serviço (o dia 31 não existe)
+  const T2 = iniciar({ exemplos: true });
+  T2.avancar(60 * 24 * 28); venda(T2, T2.pedro, { 'var-n50': 1 });   // 02/11
+  T2.avancar(60 * 24 * 31);                                            // 03/12
+  const nov = T2.ch(T2.pedro, 'ver', { tela: 'paineis', sub: 'dias', mes: '2026-11' });
+  ok(nov.mes === '2026-11' && nov.tiles[0].val === '1' && nov.tiles[1].val === '29', 'novembro (30 dias): 1 dia com serviço e 29 sem serviço', [nov.tiles[0].val, nov.tiles[1].val]);
+  const out2 = T2.ch(T2.pedro, 'ver', { tela: 'paineis', sub: 'dias', mes: '2026-10' });
+  ok(out2.tiles[0].val === '1' && out2.tiles[1].val === '26', 'outubro visto depois: 1 dia com serviço (05/10) e 26 sem (de 05 a 31 são 27 dias)', [out2.tiles[0].val, out2.tiles[1].val]);
+  const vazio = iniciar(), vv = vazio.ch(vazio.pedro, 'ver', { tela: 'paineis', sub: 'dias' });
+  ok(vv.ok && vv.total.inicio === null && vv.total.comServico === 0 && vv.total.semServico === 0 && vv.tiles[1].val === '0', 'sem nenhum registro: nenhum dia sem serviço');
+  ok(T.ch(T.pedro, 'sistema.auditar').limpo, 'auditoria limpa (a tela só lê)');
+}
+
 grupo('todas as telas respondem');
 {
   const T = iniciar({ exemplos: true });
-  const telas = [['venda'], ['preparo'], ['compra'], ['fechamento'], ['estoque', 'saldos'], ['estoque', 'movs'], ['estoque', 'mexer'], ['paineis', 'geral'], ['paineis', 'vendas'], ['paineis', 'estoque'], ['paineis', 'compras'], ['paineis', 'producao'], ['paineis', 'fin'], ['paineis', 'sorteio'], ['cadastros', 'materiais'], ['cadastros', 'produtos'], ['cadastros', 'receitas'], ['cadastros', 'listas'], ['cadastros', 'promos'], ['financeiro', 'resultado'], ['financeiro', 'lanc'], ['clientes', 'lista'], ['clientes', 'sorteio'], ['historico'], ['sistema'], ['mais']];
+  const telas = [['venda'], ['preparo'], ['compra'], ['fechamento'], ['estoque', 'saldos'], ['estoque', 'movs'], ['estoque', 'mexer'], ['paineis', 'geral'], ['paineis', 'dias'], ['paineis', 'vendas'], ['paineis', 'estoque'], ['paineis', 'compras'], ['paineis', 'producao'], ['paineis', 'fin'], ['paineis', 'sorteio'], ['cadastros', 'materiais'], ['cadastros', 'produtos'], ['cadastros', 'receitas'], ['cadastros', 'listas'], ['cadastros', 'promos'], ['financeiro', 'resultado'], ['financeiro', 'lanc'], ['clientes', 'lista'], ['clientes', 'sorteio'], ['historico'], ['sistema'], ['mais']];
   telas.forEach((t) => { const r = ver(T, T.pedro, t[0], t[1]); ok(r.ok, 'tela ' + t.join('/'), r.erro); });
   const zero = iniciar();
   telas.forEach((t) => { const r = ver(zero, zero.pedro, t[0], t[1]); ok(r.ok, 'tela vazia ' + t.join('/'), r.erro); });

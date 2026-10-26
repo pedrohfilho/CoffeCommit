@@ -69,6 +69,31 @@ button,input,select{font-family:inherit}
 .tag.pend{background:#FFE3C7;color:#8A3A12}
 .tag.okk{background:#DCEBDD;color:#1F4F2C}
 .tag.err{background:#F8D9D3;color:#8F2A1A}
+/* ---- dia a dia (calendário) ---- */
+.calh,.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.calh{text-align:center;font-size:11px;font-weight:600;color:#6B5547}
+.cd{height:48px;min-width:0;padding:0;border:1px solid #CDB9A6;border-radius:10px;background:#FFFDF9;color:#2A1A12;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:600;line-height:1.1;cursor:pointer}
+.cd .dn{font-size:10.5px}
+.cd .dv{font-size:14px;font-weight:700}
+.cd.l1{background:#E0A26F;border-color:#E0A26F}
+.cd.l2{background:#C9773F;border-color:#C9773F}
+.cd.l3{background:#A8481A;border-color:#A8481A;color:#FFFDF9}
+.cd.l4{background:#6E2A0C;border-color:#6E2A0C;color:#FFFDF9}
+.cd.on0{border:2px solid #A8481A}
+.cd.sem{background:#E4D6C8;border-color:#CDB9A6;color:#5B4A3E}
+.cd.fut{background:transparent;border-color:#E4D6C8;color:#6B5547}
+.cd.hj{border:2px solid #2A1A12}
+.cd.sel{outline:2px solid #2A1A12;outline-offset:1px}
+.lg{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;color:#6B5547;align-items:center}
+.lg span{display:inline-flex;align-items:center;gap:3px}
+.sw{display:inline-block;width:14px;height:14px;border-radius:4px;border:1px solid #CDB9A6;box-sizing:border-box}
+.sw.l1{background:#E0A26F;border-color:#E0A26F}
+.sw.l2{background:#C9773F;border-color:#C9773F}
+.sw.l3{background:#A8481A;border-color:#A8481A}
+.sw.l4{background:#6E2A0C;border-color:#6E2A0C}
+.sw.on0{border:2px solid #A8481A;background:#FFFDF9}
+.sw.sem{background:#E4D6C8}
+.ghost:disabled{opacity:.45;cursor:default}
 .neg{color:#9A2A14}
 .struck{text-decoration:line-through;color:#8C7566}
 .msg{grid-area:msg;flex-shrink:0;margin:0 12px 6px;padding:4px 4px 4px 12px;border-radius:12px;background:#E6F1E8;color:#1F4F2C;font-size:13px;font-weight:600;align-items:center;justify-content:space-between;gap:8px}
@@ -144,5 +169,11 @@ button,input,select{font-family:inherit}
   .foot.slim{text-align:left}
   .btn{width:auto;min-width:240px;padding:0 24px}
   .foot > .btn{width:100%}
+}
+/* totais do dia a dia: no celular e no tablet seguem a ordem normal; em tela larga ficam numa coluna ao lado do calendário */
+.dcol{display:contents}
+@container app (min-width: 1100px){
+  .sec > .cal-card{grid-column:span 2}
+  .dcol{display:flex;flex-direction:column;gap:10px}
 }
 </style>

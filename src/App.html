@@ -39,7 +39,7 @@
     cadastros: [['materiais', 'Materiais'], ['produtos', 'Produtos e preços'], ['receitas', 'Receitas'], ['listas', 'Listas'], ['promos', 'Promoções']],
     financeiro: [['resultado', 'Resultado e payback'], ['lanc', 'Lançamentos']],
     clientes: [['lista', 'Clientes'], ['sorteio', 'Sorteio']],
-    paineis: [['geral', 'Geral'], ['vendas', 'Vendas'], ['estoque', 'Estoque'], ['compras', 'Compras'], ['producao', 'Produção'], ['fin', 'Financeiro'], ['sorteio', 'Sorteio']]
+    paineis: [['geral', 'Geral'], ['dias', 'Dia a dia'], ['vendas', 'Vendas'], ['estoque', 'Estoque'], ['compras', 'Compras'], ['producao', 'Produção'], ['fin', 'Financeiro'], ['sorteio', 'Sorteio']]
   };
   var S = {
     cafeEm: ler('cafe_cafe_em') || 'colher',
@@ -47,7 +47,7 @@
     v: {}, msg: null, ocupado: 0, ids: {}, seq: 0,
     cart: {}, pay: null, ticket: null, vs: { sim: false, n: 1, cliente: null, busca: '', res: [], total: 0, ativa: false },
     prep: { litros: 1, quem: null, plan: {}, aj: {}, ajTxt: {}, comMat: false, completando: null, mostraPlano: false, base: 'CAFE' }, recBase: 'CAFE', rd: {}, pend: 0, atualizar: false, desc: { aberto: false, txt: '', promo: null }, promoNova: '', compra: { mat: null, n: 1, valorTxt: '', valorManual: false, forn: null, corrige: null, novoLocal: '' },
-    periodo: 'hoje', est: { contar: null, abrir: null }, cli0: { todos: {} }, rec: null, lista: { novo: { fornecedor: '', forma_pagamento: '', motivo_perda: '' }, edit: null },
+    periodo: 'hoje', mes: null, metrica: 'c', diaSel: null, est: { contar: null, abrir: null }, cli0: { todos: {} }, rec: null, lista: { novo: { fornecedor: '', forma_pagamento: '', motivo_perda: '' }, edit: null },
     perda: { ml: 50, motivo: null }, mov: { tipo: 'AJUSTE', mat: null, de: null, qtd: 0, txt: '0' }, lanc: { tipo: 'REEMBOLSO', uid: null, valor: 1000 },
     nm: { nome: '', un: 'g' }, cli: { q: '', nq: '', form: null }, zerar: false, novoSorteio: false, auditoria: null
   };
@@ -68,8 +68,8 @@
       }
     });
   }
-  function chaveVista(q) { return q.tela + (SUBS[q.tela] ? ':' + q.sub : '') + (q.tela === 'paineis' ? ':' + q.periodo : ''); }
-  function consulta() { var t = S.tela, sub = S.sub[t]; var q = { tela: t, sub: sub }; if (t === 'clientes') q.q = sub === 'sorteio' ? S.cli.nq : S.cli.q; if (t === 'paineis') q.periodo = S.periodo; return q; }
+  function chaveVista(q) { return q.tela + (SUBS[q.tela] ? ':' + q.sub : '') + (q.tela === 'paineis' ? ':' + q.periodo + (q.sub === 'dias' ? ':' + (q.mes || '') : '') : ''); }
+  function consulta() { var t = S.tela, sub = S.sub[t]; var q = { tela: t, sub: sub }; if (t === 'clientes') q.q = sub === 'sorteio' ? S.cli.nq : S.cli.q; if (t === 'paineis') { q.periodo = S.periodo; if (sub === 'dias' && S.mes) q.mes = S.mes; } return q; }
   function V() { return S.v[chaveVista(consulta())] || null; }
   function guardarVista(q, view) { S.v[chaveVista(q)] = view; }
 
@@ -416,7 +416,51 @@
   }
 
   /* ============================ PAINÉIS ============================ */
+  var MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'], DIAS_SEM = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  function mesVizinho(m, n) { var a = Number(m.slice(0, 4)), b = Number(m.slice(5, 7)) - 1 + n; a += Math.floor(b / 12); b = ((b % 12) + 12) % 12; return a + '-' + String(b + 1).padStart(2, '0'); }
+  function dmData(d) { return d.slice(8) + '/' + d.slice(5, 7); }
+  function compacto(n) { return n >= 10000 ? Math.round(n / 1000) + 'k' : n >= 1000 ? (Math.round(n / 100) / 10).toString().replace('.', ',') + 'k' : String(n); }
+  /* valor mostrado no quadradinho do dia, conforme a medida escolhida */
+  function valorDia(x, m) { return m === 'f' ? x.f / 100 : m === 'l' ? x.l : x.c; }
+  function textoDia(x, m) { var n = valorDia(x, m); return n > 0 ? (m === 'l' ? fmtN(n) : compacto(Math.round(n))) : '–'; }
+  function telaDias() {
+    var v = V(); if (!v) return carregando();
+    var m = S.metrica, a = Number(v.mes.slice(0, 4)), b = Number(v.mes.slice(5, 7)), ini = v.total.inicio, hoje = v.hoje;
+    var max = 0; Object.keys(v.dias).forEach(function (d) { max = Math.max(max, valorDia(v.dias[d], m)); });
+    var vazios = new Date(Date.UTC(a, b - 1, 1)).getUTCDay(), n = new Date(Date.UTC(a, b, 0)).getUTCDate(), cel = '';
+    for (var i = 0; i < vazios; i++) cel += '<div></div>';
+    for (var k = 1; k <= n; k++) {
+      var d = v.mes + '-' + String(k).padStart(2, '0'), x = v.dias[d], cls = 'cd', txt = '', rot;
+      if (x) {
+        var val = valorDia(x, m), nivel = val > 0 && max > 0 ? Math.max(1, Math.min(4, Math.ceil(val / max * 4))) : 0;
+        cls += nivel ? ' l' + nivel : ' on0'; txt = textoDia(x, m); rot = 'com serviço';
+      } else if (d > hoje) { cls += ' fut'; rot = 'ainda não chegou'; }
+      else if (ini && d >= ini && d < hoje) { cls += ' sem'; txt = '×'; rot = 'sem serviço'; }
+      else if (d === hoje) { rot = 'hoje, ainda sem registro'; }
+      else { cls += ' fut'; rot = 'antes do primeiro dia'; }
+      if (d === hoje) cls += ' hj';
+      if (d === S.diaSel) cls += ' sel';
+      cel += '<button type="button" class="' + cls + '" data-a="dia-sel" data-v="' + d + '" aria-label="' + k + ' de ' + MESES[b - 1] + ', ' + rot + '" aria-pressed="' + (d === S.diaSel) + '"><span class="dn">' + k + '</span><span class="dv">' + txt + '</span></button>';
+    }
+    var legenda = '<div class="lg"><span><i class="sw l1"></i><i class="sw l2"></i><i class="sw l3"></i><i class="sw l4"></i> mais ' + (m === 'f' ? 'faturamento' : m === 'l' ? 'café preparado' : 'copos') + '</span><span><i class="sw on0"></i> teve serviço, sem venda</span><span><i class="sw sem"></i> sem serviço</span></div>';
+    var det = '';
+    if (S.diaSel && S.diaSel.slice(0, 7) === v.mes) {
+      var s = S.diaSel, x2 = v.dias[s], sem = new Date(s + 'T00:00:00Z').getUTCDay(), tit = DIAS_SEM[sem] + ', ' + dmData(s) + '/' + s.slice(0, 4);
+      if (x2) det = card(lbl(tit) + '<div class="trio"><div class="tile">' + lbl('Vendas') + '<div class="tv">' + x2.v + '</div></div><div class="tile">' + lbl('Copos') + '<div class="tv">' + x2.c + '</div></div><div class="tile">' + lbl('Faturamento') + '<div class="tv">' + esc(fmtR(x2.f)) + '</div></div></div>' +
+        '<div class="trio"><div class="tile">' + lbl('Preparado') + '<div class="tv">' + fmtN(x2.l) + ' L</div></div><div class="tile">' + lbl('Perdido') + '<div class="tv">' + fmtN(x2.p) + ' ml</div></div><div class="tile">' + lbl('Consumo nosso') + '<div class="tv">' + x2.k + (x2.k === 1 ? ' copo' : ' copos') + '</div></div></div>');
+      else det = card(lbl(tit) + muted(s > hoje ? 'Este dia ainda não chegou.' : ini && s >= ini ? 'Sem serviço neste dia: nenhuma venda, preparo ou consumo registrado.' : 'Sem registro: o primeiro dia de serviço foi ' + (ini ? dmData(ini) + '/' + ini.slice(0, 4) : 'ainda não houve') + '.'));
+    }
+    var melhor = v.melhor ? card(lbl('Dia mais forte do mês') + '<div class="row"><span class="nm">' + dmData(v.melhor.dia) + ' (' + DIAS_SEM[new Date(v.melhor.dia + 'T00:00:00Z').getUTCDay()] + ')</span><span class="nm">' + v.melhor.copos + (v.melhor.copos === 1 ? ' copo' : ' copos') + ' · ' + esc(fmtR(v.melhor.fat)) + '</span></div>') : '';
+    var total = ini ? muted('Desde o primeiro dia (' + dmData(ini) + '/' + ini.slice(0, 4) + '): ' + v.total.comServico + (v.total.comServico === 1 ? ' dia' : ' dias') + ' com serviço e ' + v.total.semServico + (v.total.semServico === 1 ? ' dia' : ' dias') + ' sem serviço.') : muted('Ainda não há nenhum dia com registro.');
+    return corpo('<div class="sec">' +
+      card('<div class="row">' + '<button type="button" class="ghost" data-a="dia-mes" data-v="-1" aria-label="Mês anterior"' + (v.mes <= v.primeiroMes ? ' disabled' : '') + '>‹</button><span class="mid">' + MESES[b - 1].charAt(0).toUpperCase() + MESES[b - 1].slice(1) + ' de ' + a + '</span><button type="button" class="ghost" data-a="dia-mes" data-v="1" aria-label="Próximo mês"' + (v.mes >= v.mesHoje ? ' disabled' : '') + '>›</button></div>' +
+        '<div class="chips" role="group" aria-label="Medida">' + [['c', 'Copos'], ['f', 'Faturamento'], ['l', 'Litros']].map(function (x) { return chip(x[1], m === x[0], 'dia-metrica', x[0]); }).join('') + '</div>' +
+        '<div class="calh">' + DIAS_SEM.map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div><div class="cal">' + cel + '</div>' + legenda, 'full cal-card') +
+      '<div class="dcol">' + tiles(v.tiles) + det + melhor + '</div>' +
+      card(lbl('Dia da semana: média de copos nos dias de venda') + barras(v.semana)) + card(total) + '</div>');
+  }
   function telaPaineis() {
+    if (S.sub.paineis === 'dias') return telaDias();
     var v = V(); if (!v) return carregando();
     var nota = v.ignoraPeriodo ? 'Este painel mostra a situação de agora e não muda com o período.' : S.periodo === 'hoje' ? 'Só o que aconteceu hoje.' : S.periodo === '7d' ? 'Últimos 7 dias, contando hoje.' : 'Tudo desde o começo.';
     return corpo('<div class="chips" role="group" aria-label="Período">' + [['hoje', 'Hoje'], ['7d', '7 dias'], ['tudo', 'Tudo']].map(function (x) { return chip(x[1], S.periodo === x[0], 'periodo', x[0]); }).join('') + '</div>' + muted(nota) +
@@ -722,6 +766,9 @@
     'prep-lote': function () { agir('preparo.materiais', { ids: V().pendentes.map(function (x) { return x.id; }) }, { depois: function (r) { if (r.atencao && S.msg) S.msg.erro = true; } }); },
     'ir-cad': function (v) { S.tela = 'cadastros'; S.sub.cadastros = v; S.msg = null; carregar(); },
     'periodo': function (v) { S.periodo = v; carregar(); },
+    'dia-mes': function (v) { var atual = (V() && V().mes) || S.mes; S.mes = mesVizinho(atual, Number(v)); S.diaSel = null; carregar(); },
+    'dia-metrica': function (v) { S.metrica = v; render(); },
+    'dia-sel': function (v) { S.diaSel = S.diaSel === v ? null : v; render(); },
     /* compra */
     'cp-mat': function (v) { var m = V().materiais.filter(function (x) { return x.id === v; })[0]; S.compra.mat = v; S.compra.n = 1; S.compra.valorTxt = moedaTxt(m.precoPadrao); S.compra.valorManual = false; render(); },
     'cp-n': function (v) { definirEmbalagens(S.compra.n + Number(v)); render(); },
