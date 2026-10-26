@@ -69,6 +69,19 @@ button,input,select{font-family:inherit}
 .tag.pend{background:#FFE3C7;color:#8A3A12}
 .tag.okk{background:#DCEBDD;color:#1F4F2C}
 .tag.err{background:#F8D9D3;color:#8F2A1A}
+/* ---- clientes ---- */
+.cli-topo{display:flex;gap:8px;align-items:stretch}
+.cli-topo .inp{flex:1;min-width:0}
+.cli-topo .ghost{min-height:42px}
+.clist{display:flex;flex-direction:column;gap:6px}
+.crow{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:8px;width:100%;min-height:54px;padding:8px 12px;box-sizing:border-box;border:1px solid #E4D6C8;border-radius:14px;background:#FFFDF9;color:#2A1A12;text-align:left;cursor:pointer;font:inherit}
+.crow.off{opacity:.65}
+.cn{display:flex;flex-direction:column;min-width:0;gap:1px}
+.cn .muted{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ci{font-size:12px;font-weight:700;color:#8A3A12;text-align:right;max-width:110px;line-height:1.25}
+.h2{font-size:20px;font-weight:700;line-height:1.15;overflow-wrap:anywhere}
+.trio .tv{font-size:16px}
+.chip:disabled{opacity:.45;cursor:default}
 /* ---- gráficos (SVG) ---- */
 .gh{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px}
 .chips.tipo{gap:4px;flex-wrap:nowrap}
@@ -124,12 +137,7 @@ button,input,select{font-family:inherit}
 .tv{overflow-wrap:break-word}   /* valor comprido (ex.: "R$ 20,00 · 20 vendas") quebra em vez de estourar o cartão no celular */
 .mid{flex-shrink:0}
 .tag{white-space:nowrap}
-.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;white-space:pre;line-height:1.6;color:#2A1A12;max-height:220px;overflow:auto}
-.mono.cols{column-count:2;column-gap:16px}
 .numbox{padding:8px 10px;border-radius:10px;background:#F6EFE6;display:flex;flex-direction:column;gap:2px}
-.ticket{border-color:#A9CDB0;background:#E6F1E8}
-.res{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-height:44px;padding:6px 12px;border:1px solid #CDB9A6;border-radius:10px;background:#FFFDF9;color:#2A1A12;text-align:left;cursor:pointer}
-.selcli{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:10px;background:#F6EFE6}
 .row2{display:flex;gap:8px}
 .row2 > .btn,.row2 > .ghost{flex:1;min-width:0;width:auto;padding:0 8px;min-height:38px;font-size:14px}
 .yn{display:flex;gap:6px}
@@ -137,6 +145,9 @@ button,input,select{font-family:inherit}
 .yn.sm{flex:0 0 150px}
 .fld{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid #E4D6C8}
 .fld .lbl{flex:1;min-width:0}
+.fld-txt{flex-direction:column;align-items:stretch;gap:4px}   /* campo de texto: o rótulo vai em cima, para o nome não ser espremido */
+.fld-txt .fldin{width:100%}
+.fld-txt .fldin .inp{width:100%;text-align:left}
 .fldin{display:flex;align-items:center;gap:6px;flex-shrink:0}
 .fldin .inp{width:104px;min-height:38px;text-align:right}
 .un{font-size:12px;color:#6B5547;min-width:22px}

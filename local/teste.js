@@ -1593,6 +1593,20 @@ grupo('gráficos: os dados trazem o valor puro para trocar o tipo de gráfico');
   ok(ver(T, T.pedro, 'clientes', 'clube', '').ok, 'o clube segue respondendo');
 }
 
+grupo('clientes: dados da lista e atalhos de preço');
+{
+  const T = iniciar({ exemplos: true });
+  T.ch(T.pedro, 'cliente.motivo', { id: 'cli-maria-exemplo', motivo: 'Toma de manhã e traz os colegas para o café com leite aos sábados' });
+  const l = ver(T, T.pedro, 'clientes', 'clube', '');
+  const m = l.clientes.find((c) => c.id === 'cli-maria-exemplo'), j = l.clientes.find((c) => c.id === 'cli-joao-exemplo');
+  ok(m.codigo === 'C001' && /^\(71\) 9\d{4}-\d{4}$/.test(m.telefone) && m.motivoCurto.length === 41 && m.motivoCurto.endsWith('…') && j.motivoCurto === '', 'lista traz código, telefone e o começo da anotação (40 letras e reticências)', [m.codigo, m.telefone, m.motivoCurto, j.motivoCurto]);
+  ok(l.numerosAtivos === T.ctx.estadoSorteio_(T.db(), T.ctx.AGORA_TESTE().dataHora).validos.length && l.numerosAtivos === 4, 'total de números ativos de todos os clientes', l.numerosAtivos);
+  const det = T.ch(T.pedro, 'ver', { tela: 'clientes', sub: 'clube', q: '', cid: 'cli-maria-exemplo' }).detalhe;
+  ok(JSON.stringify(det.precos) === JSON.stringify([100, 150, 200, 250]), 'atalhos de crédito: os preços de venda em uso, sem repetir e em ordem', det.precos);
+  T.ch(T.pedro, 'preco.alterar', { variante_id: 'var-n50', preco_centavos: 120 });
+  ok(JSON.stringify(T.ch(T.pedro, 'ver', { tela: 'clientes', sub: 'clube', q: '', cid: 'cli-maria-exemplo' }).detalhe.precos) === JSON.stringify([120, 150, 200, 250]), 'se o preço muda, os atalhos acompanham');
+}
+
 grupo('dia a dia: dias com e sem serviço');
 {
   const T = iniciar({ exemplos: true });
