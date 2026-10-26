@@ -300,6 +300,7 @@ function preencherColunaNova_(sh, def, coluna, ss) {
     var iv = def.colunas.map(function (c) { return c.nome; }).indexOf('variante_id') + 1, vars = sh.getRange(2, iv, n, 1).getValues();
     sh.getRange(2, idx, n, 1).setValues(vars.map(function (r) { return [tam[r[0]] || '']; }));
   }
+  if ((def.nome === 'venda_item' || def.nome === 'consumo_proprio_item') && coluna === 'custo_copo_centavos') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return [0]; }));   // o copo dos registros antigos saiu no preparo
   if (def.nome === 'receita_cafe' && coluna === 'base') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return ['CAFE']; }));
   if (def.nome === 'receita_cafe' && coluna === 'g_por_colher_acucar') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return [10]; }));
   if (def.nome === 'receita_cafe' && coluna === 'leite_ml_por_litro') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return [0]; }));

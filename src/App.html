@@ -47,7 +47,7 @@
     v: {}, msg: null, ocupado: 0, ids: {}, seq: 0,
     cart: {}, pay: null, ticket: null, vs: { sim: false, n: 1, cliente: null, busca: '', res: [], total: 0, ativa: false },
     prep: { litros: 1, quem: null, plan: {}, aj: {}, ajTxt: {}, comMat: false, completando: null, mostraPlano: false, base: 'CAFE' }, recBase: 'CAFE', rd: {}, pend: 0, atualizar: false, desc: { aberto: false, txt: '', promo: null }, promoNova: '', compra: { mat: null, n: 1, valorTxt: '', valorManual: false, forn: null, corrige: null, novoLocal: '' },
-    periodo: 'hoje', mes: null, metrica: 'c', diaSel: null, est: { contar: null, abrir: null }, cli0: { todos: {} }, rec: null, lista: { novo: { fornecedor: '', forma_pagamento: '', motivo_perda: '' }, edit: null },
+    semCopo: false, periodo: 'hoje', mes: null, metrica: 'c', diaSel: null, est: { contar: null, abrir: null }, cli0: { todos: {} }, rec: null, lista: { novo: { fornecedor: '', forma_pagamento: '', motivo_perda: '' }, edit: null },
     perda: { ml: 50, motivo: null }, mov: { tipo: 'AJUSTE', mat: null, de: null, qtd: 0, txt: '0' }, lanc: { tipo: 'REEMBOLSO', uid: null, valor: 1000 },
     nm: { nome: '', un: 'g' }, cli: { q: '', nq: '', form: null }, zerar: false, novoSorteio: false, auditoria: null
   };
@@ -236,6 +236,7 @@
       return corpo(h, (avC ? '<div class="muted neg">' + esc(nb(avC)) + '</div>' : '') +
         '<div class="chips pay">' + v.formas.map(function (x) { return chip(x.nome, false, 'pay', x.id); }).join('') + chip('Consumo', true, 'pay', 'consumo') + '</div>' +
         '<div class="row"><span class="lbl">Quem tomou</span><div class="chips">' + (v.usuarios || []).map(function (u) { return chip(u.nome, quem === u.id, 'cons-quem', u.id); }).join('') + '</div></div>' +
+        '<div class="row"><span class="lbl">Usou copo?</span><div class="chips">' + chip('Sim', !S.semCopo, 'cons-copo', '1') + chip('Não', S.semCopo, 'cons-copo', '0') + '</div></div>' +
         '<div class="muted">' + esc(nb('Consumo nosso \u00B7 ' + t.copos + (t.copos > 1 ? ' copos' : ' copo') + ' \u00B7 ' + fmtN(t.serv) + ' ml' + (t.serv !== t.ml ? ' (' + fmtN(t.ml) + ' ml de café)' : '') + ' \u00B7 sem cobrança')) + '</div>' +
         '<button type="button" class="btn" aria-label="Registrar consumo" data-a="venda-ok"' + (v.fechado || S.ocupado ? ' disabled' : '') + '>Registrar consumo</button>');
     }
@@ -255,7 +256,7 @@
     var porBase = (v.receitas && v.receitas[S.prep.base]) || v.receitaPor, c = {}, r = porBase[quem] || porBase[Object.keys(porBase)[0]], ch = v.chaves, cafePlano = 0;
     function add(id, q) { if (!id || !(q > 0)) return; c[id] = Math.round(((c[id] || 0) + q) * 1000) / 1000; }
     add(ch.cafe, litros * r.colheres * r.gPorColher); add(ch.filtro, Math.ceil(litros * r.filtros - 1e-9)); add(ch.acucar, litros * r.acucar); add(ch.agua, litros * r.agua); add(ch.leite, litros * (r.leite || 0));
-    v.produtos.forEach(function (p) { var n = plano(p.id); if (!n) return; cafePlano += n * p.cafeMl; add(ch.canela, n * p.canelaG); add(v.copoPorVariante[p.id], n); });
+    v.produtos.forEach(function (p) { var n = plano(p.id); if (!n) return; cafePlano += n * p.cafeMl; add(ch.canela, n * p.canelaG); });   // o copo sai na venda, não no preparo
     function plano(id) { return plan[id] || 0; }
     return { c: c, cafePlano: cafePlano, receita: r };
   }
@@ -292,7 +293,7 @@
         lbl('O que foi preparado?') + '<div class="chips">' + chip('Café', pr.base === 'CAFE', 'prep-base', 'CAFE') + chip('Café com leite', pr.base === 'CAFE_LEITE', 'prep-base', 'CAFE_LEITE') + '</div>' +
         (pr.base === 'CAFE_LEITE' ? muted('O leite entra no preparo: a receita do café com leite já traz a água e o leite por litro.') : ''));
       var mostraPlano = pr.mostraPlano || pr.comMat || Object.keys(pr.plan).some(function (k) { return pr.plan[k] > 0; });
-      h += !mostraPlano ? '' : card(lbl('Quantos copos vai servir deste preparo (opcional)') + '<div class="rows">' + v.produtos.map(function (p) {
+      h += !mostraPlano ? '' : card(lbl('Quantos copos vai servir deste preparo (opcional: confere o volume e a canela)') + '<div class="rows">' + v.produtos.map(function (p) {
         var n = pr.plan[p.id] || 0, det = p.cafeMl + ' ml' + (p.canelaG ? ' + ' + fmtN(p.canelaG) + ' g de canela' : '');
         return '<div class="it"><div><div class="nm">' + esc(nb(p.nome + ' ' + p.tamanho + ' ml')) + '</div>' + muted(det) + '</div>' + step(String(n), 'prep-plan', p.id + '|-1', p.id + '|1', 'Tirar um ' + p.nome + ' de ' + p.tamanho + ' ml do plano', 'Adicionar um ' + p.nome + ' de ' + p.tamanho + ' ml ao plano', 32) + '</div>';
       }).join('') + '</div>' + linha('<div class="nm">Café usado</div>', '<div class="mid">' + esc(nb(fmtN(calc.cafePlano) + ' de ' + fmtN(cap) + ' ml')) + '</div>') +
@@ -716,6 +717,7 @@
       render();
     },
     'cons-quem': function (v) { S.consumidor = v; render(); },
+    'cons-copo': function (v) { S.semCopo = v === '0'; render(); },
     'pay': function (v) { S.pay = v; render(); },
     'desc-abrir': function () { S.desc.aberto = !S.desc.aberto; render(); },
     'desc-rap': function (v) {
@@ -732,7 +734,7 @@
     'venda-ok': function () {
       var itens = {}; Object.keys(S.cart).forEach(function (k) { if (S.cart[k] > 0) itens[k] = S.cart[k]; });
       if (S.pay === 'consumo') {
-        agir('consumo.registrar', { id: idDe('consumo'), itens: itens, consumidor_id: S.consumidor || S.user.id }, { depois: function (r) { limparId('consumo'); S.cart = {}; S.consumidor = null; S.pay = V().formas[0].id; if (r.passou && S.msg) S.msg.erro = true; } });
+        agir('consumo.registrar', { id: idDe('consumo'), itens: itens, consumidor_id: S.consumidor || S.user.id, sem_copo: S.semCopo }, { depois: function (r) { limparId('consumo'); S.cart = {}; S.consumidor = null; S.semCopo = false; S.pay = V().formas[0].id; if (r.passou && S.msg) S.msg.erro = true; } });
         return;
       }
       agir('venda.registrar', { id: idDe('venda'), itens: itens, forma_pagamento_id: S.pay, desconto_centavos: Object.keys(itens).length ? (descontoCents() || 0) : 0, promocao_id: S.desc.promo, sorteio: S.vs.sim ? { cliente_id: S.vs.cliente && S.vs.cliente.id, n: S.vs.n } : null },

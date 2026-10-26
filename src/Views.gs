@@ -198,7 +198,7 @@ function viewEstoque_(db, ctx, sub) {
     }) };
   }
   if (sub === 'movs') {
-    var ov = origensValidas_(db, ORIGENS_ESTOQUE_), un = mapa_(db, 'usuario'), cab = { compra: mapa_(db, 'compra'), preparo: mapa_(db, 'preparo'), ajuste_estoque: mapa_(db, 'ajuste_estoque') };
+    var ov = origensValidas_(db, ORIGENS_ESTOQUE_), un = mapa_(db, 'usuario'), cab = { compra: mapa_(db, 'compra'), preparo: mapa_(db, 'preparo'), ajuste_estoque: mapa_(db, 'ajuste_estoque'), venda: mapa_(db, 'venda'), consumo_proprio: mapa_(db, 'consumo_proprio') };
     var movs = db.t('movimento_estoque').filter(function (m) { return movValido_(ov, m); }).slice(-30).reverse().map(function (m) {
       var h = cab[m.origem_tabela] && cab[m.origem_tabela][m.origem_id];
       return { texto: nomeDe_(mats, m.material_id) + ' \u00B7 ' + nomeDe_(un, m.usuario_id), tipo: m.tipo, meta: dm_(m.data_hora), qtd: m.qtd, un: mats[m.material_id].unidade, tabela: m.origem_tabela, origem: m.origem_id, desfazer: !m.estorno_de_id && !!h && h.status === 'ATIVO' };
@@ -224,7 +224,7 @@ function agregados_(db, ts, desde) {
     add(A.porPag, nomeDe_(formas, v.forma_pagamento_id), v.total_cafe_centavos + v.total_sorteio_centavos);
     add(A.porHora, formatarLocal_(v.data_hora, 'HH'), 1);
   });
-  db.t('venda_item').forEach(function (i) { if (!vendasAt[i.venda_id]) return; var tam = i.tamanho_ml != null ? i.tamanho_ml : ((vars[i.variante_id] || {}).tamanho_ml || 0); add(A.porProd, i.variante_id + '|' + tam, i.qtd); add(A.porTam, tam, i.qtd); A.mlServido += i.qtd * tam; });
+  db.t('venda_item').forEach(function (i) { if (!vendasAt[i.venda_id]) return; var tam = i.tamanho_ml != null ? i.tamanho_ml : ((vars[i.variante_id] || {}).tamanho_ml || 0); add(A.porProd, i.variante_id + '|' + tam, i.qtd); add(A.porTam, tam, i.qtd); A.mlServido += i.qtd * tam; A.custoAt += i.custo_copo_centavos || 0; A.custoPad += i.custo_copo_centavos || 0; });   // o copo é custo da venda
   var prepAt = {};
   db.t('preparo').forEach(function (p) {
     if (p.status !== 'ATIVO' || !dentro(p.dia_local)) return;
@@ -241,7 +241,9 @@ function agregados_(db, ts, desde) {
     if (!dentro(c.dia_local)) return;
     A.nCompras++; A.gasto += c.valor_total_centavos; add(A.porLocal, nomeDe_(forn, c.fornecedor_id), c.valor_total_centavos);
   });
-  db.t('consumo_proprio').forEach(function (c) { if (c.status === 'ATIVO' && dentro(c.dia_local)) { A.consumoMl += c.ml_cafe; A.consumoCopos += c.copos; } });
+  var consAt = {};
+  db.t('consumo_proprio').forEach(function (c) { if (c.status === 'ATIVO' && dentro(c.dia_local)) { consAt[c.id] = true; A.consumoMl += c.ml_cafe; A.consumoCopos += c.copos; } });
+  db.t('consumo_proprio_item').forEach(function (i) { if (consAt[i.consumo_id]) { A.custoAt += i.custo_copo_centavos || 0; A.custoPad += i.custo_copo_centavos || 0; } });   // copo usado no consumo nosso também é custo
   // copos pagos x grátis: o desconto cobre primeiro os copos mais baratos; o que cobrir inteiro é "grátis", e o que sobrar num copo é "com desconto"
   var undsPorVenda = {};
   db.t('venda_item').forEach(function (i) { if (!vendasAt[i.venda_id]) return; var l = undsPorVenda[i.venda_id] = undsPorVenda[i.venda_id] || []; for (var k = 0; k < i.qtd; k++) l.push(i.preco_unit_centavos); });

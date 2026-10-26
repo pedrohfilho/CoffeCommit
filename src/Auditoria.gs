@@ -47,6 +47,7 @@ function auditar_(ss) {
   var itV = {}; db.t('venda_item').forEach(function (i) { (itV[i.venda_id] = itV[i.venda_id] || []).push(i); });
   var numV = {}; db.t('numero_sorteio').forEach(function (n) { (numV[n.venda_id] = numV[n.venda_id] || []).push(n); });
   var cafeOrig = {}; db.t('movimento_cafe').forEach(function (m) { if (!m.estorno_de_id) cafeOrig[m.origem_tabela + ':' + m.origem_id] = (cafeOrig[m.origem_tabela + ':' + m.origem_id] || 0) + m.ml_cafe; });
+  var estOrig = {}; db.t('movimento_estoque').forEach(function (m) { if (!m.estorno_de_id) estOrig[m.origem_tabela + ':' + m.origem_id] = (estOrig[m.origem_tabela + ':' + m.origem_id] || 0) + m.qtd; });
   db.t('venda').forEach(function (v) {
     if (v.status === 'GRAVANDO') return;
     var its = itV[v.id] || [], tot = soma_(its, function (i) { return i.qtd * i.preco_unit_centavos; }), ml = soma_(its, function (i) { return i.qtd * i.ml_cafe_unit; });
@@ -54,6 +55,7 @@ function auditar_(ss) {
     if ((v.desconto_centavos || 0) > tot) A('ERRO', 'venda', v.id, 'desconto maior que o valor dos itens');
     if (Math.abs(ml - v.ml_cafe) > 1e-6) A('ERRO', 'venda', v.id, 'ml de café difere da soma dos itens');
     if (Math.abs((cafeOrig['venda:' + v.id] || 0) + v.ml_cafe) > 1e-6) A('ERRO', 'venda', v.id, 'livro do café não bate com a venda');
+    if (Math.abs(soma_(its, function (i) { return i.copo_material_id && controla_(mats[i.copo_material_id]) ? i.qtd : 0; }) + (estOrig['venda:' + v.id] || 0)) > 1e-6) A('ERRO', 'venda', v.id, 'livro do estoque não bate com os copos da venda');
     var ns = numV[v.id] || [];
     if (soma_(ns, function (n) { return n.valor_centavos; }) !== v.total_sorteio_centavos) A('ERRO', 'venda', v.id, 'total do sorteio difere da soma dos números');
     if (ns.length && !v.cliente_id) A('ERRO', 'venda', v.id, 'venda com números do sorteio sem cliente');
@@ -63,9 +65,9 @@ function auditar_(ss) {
     if (c.status === 'GRAVANDO') return;
     if (Math.abs(soma_(itCo[c.id] || [], function (i) { return i.qtd * i.ml_cafe_unit; }) - c.ml_cafe) > 1e-6) A('ERRO', 'consumo_proprio', c.id, 'ml de café difere da soma dos itens');
     if (Math.abs((cafeOrig['consumo_proprio:' + c.id] || 0) + c.ml_cafe) > 1e-6) A('ERRO', 'consumo_proprio', c.id, 'livro do café não bate com o consumo');
+    if (Math.abs(soma_(itCo[c.id] || [], function (i) { return i.copo_material_id && controla_(mats[i.copo_material_id]) ? i.qtd : 0; }) + (estOrig['consumo_proprio:' + c.id] || 0)) > 1e-6) A('ERRO', 'consumo_proprio', c.id, 'livro do estoque não bate com os copos do consumo');
   });
   var itC = {}; db.t('compra_item').forEach(function (i) { (itC[i.compra_id] = itC[i.compra_id] || []).push(i); });
-  var estOrig = {}; db.t('movimento_estoque').forEach(function (m) { if (!m.estorno_de_id) estOrig[m.origem_tabela + ':' + m.origem_id] = (estOrig[m.origem_tabela + ':' + m.origem_id] || 0) + m.qtd; });
   db.t('compra').forEach(function (c) {
     if (c.status === 'GRAVANDO') return;
     var its = itC[c.id] || [];

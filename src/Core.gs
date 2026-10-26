@@ -98,7 +98,7 @@ function receitaVigente_(db, ts, usuarioId, base) {
 }
 
 /* ================= livros e saldos ================= */
-var ORIGENS_ESTOQUE_ = ['compra', 'preparo', 'ajuste_estoque'];
+var ORIGENS_ESTOQUE_ = ['compra', 'preparo', 'ajuste_estoque', 'venda', 'consumo_proprio'];
 var ORIGENS_CAFE_ = ['preparo', 'venda', 'ajuste_cafe', 'consumo_proprio'];
 /* ids dos registros "de verdade" (ATIVO ou ESTORNADO) de cada tabela de origem; só lê as tabelas pedidas */
 function origensValidas_(db, tabelas) {
@@ -194,7 +194,7 @@ function consumoPreparo_(db, ts, litros, plano, usuarioId, base) {
     var n = plano[vid]; if (!(n > 0)) return;
     var v = vars[vid], comp = composicaoVigente_(db, vid, ts);
     cafePlano += n * v.tamanho_ml; copos += n;                       // o copo só tem o produto: café (o café com leite já vem misturado)
-    add(mp.canela, n * comp.canela_g); add(comp.copo_material_id, n);
+    add(mp.canela, n * comp.canela_g);                               // o copo sai na venda e no consumo, não no preparo
   });
   return { consumo: c, cafePlanoMl: r3_(cafePlano), copos: copos, receita: rc };
 }
@@ -219,6 +219,24 @@ function ticketDaVenda_(db, vendaId) {
   return { cliente: c ? c.nome : '', numeros: nums.map(function (n) { return { numero: n.numero, token: n.token }; }) };
 }
 
+/* copo de cada item: sai do estoque de quem registra, na venda e no consumo; o custo fica gravado no item. Sem composição, o registro segue sem copo (venda não para) */
+function copoDoItem_(db, ts, vid, q, mats, cu) {
+  var comp = null; try { comp = composicaoVigente_(db, vid, ts); } catch (e) { comp = null; }
+  var m = comp ? mats[comp.copo_material_id] : null;
+  return m ? { id: m.id, custo: Math.round(q * cu[m.id].atual) } : { id: null, custo: 0 };
+}
+/* linhas do livro do estoque para os copos de um registro (só material que controla estoque) e os avisos de falta */
+function linhasDeCopos_(db, uid, itens, tipo, tabela, rid, ts, dia, mats) {
+  var por = {}, sal = saldosEstoque_(db), led = [], neg = [];
+  itens.forEach(function (i) { if (i.copo_material_id && controla_(mats[i.copo_material_id])) por[i.copo_material_id] = (por[i.copo_material_id] || 0) + i.qtd; });
+  Object.keys(por).forEach(function (mid) {
+    led.push({ id: novoId_(), usuario_id: uid, material_id: mid, tipo: tipo, qtd: -por[mid], data_hora: ts, dia_local: dia, origem_tabela: tabela, origem_id: rid, estorno_de_id: null });
+    var tem = qtdEstoque_(sal, uid, mid);
+    if (tem + 1e-9 < por[mid]) neg.push(mats[mid].nome + ' (faltam ' + fmtN_(por[mid] - Math.max(0, tem)) + ' ' + mats[mid].unidade + ')');
+  });
+  return { led: led, negativos: neg };
+}
+
 function cmdVenda_(db, ctx, p) {
   idValido_(p.id);
   var ja = db.achar('venda', p.id);
@@ -227,15 +245,15 @@ function cmdVenda_(db, ctx, p) {
   var ts = ctx.agora.dataHora, dia = ctx.agora.diaLocal;
   var forma = mapa_(db, 'forma_pagamento')[p.forma_pagamento_id];
   if (!forma || !forma.ativo) falha_('Escolha a forma de pagamento.');
-  var vars = mapa_(db, 'produto_variante'), itens = [], copos = 0, ml = 0, total = 0;
+  var vars = mapa_(db, 'produto_variante'), mats = mapa_(db, 'material'), cu = custosUnitarios_(db), itens = [], copos = 0, ml = 0, total = 0;
   Object.keys(p.itens || {}).forEach(function (vid) {
     var q = parseInt(p.itens[vid], 10);
     if (!(q > 0)) return;
     if (q > 99) falha_('Quantidade grande demais.');
     var v = vars[vid];
     if (!v || !v.ativo) falha_('Produto indisponível.');
-    var preco = precoVigente_(db, vid, ts), cafe = v.tamanho_ml;
-    itens.push({ variante_id: vid, qtd: q, preco_unit_centavos: preco, ml_cafe_unit: cafe, tamanho_ml: v.tamanho_ml });
+    var preco = precoVigente_(db, vid, ts), cafe = v.tamanho_ml, cp = copoDoItem_(db, ts, vid, q, mats, cu);
+    itens.push({ variante_id: vid, qtd: q, preco_unit_centavos: preco, ml_cafe_unit: cafe, tamanho_ml: v.tamanho_ml, copo_material_id: cp.id, custo_copo_centavos: cp.custo });
     copos += q; ml += q * cafe; total += q * preco;
   });
   var nSort = 0, cliente = null;
@@ -270,11 +288,14 @@ function cmdVenda_(db, ctx, p) {
     filhos.push({ tabela: 'numero_sorteio', linhas: nums });
   }
   if (ml > 0) filhos.push({ tabela: 'movimento_cafe', linhas: [{ id: novoId_(), tipo: 'VENDA', ml_cafe: -r3_(ml), data_hora: ts, dia_local: dia, origem_tabela: 'venda', origem_id: vendaId, estorno_de_id: null }] });
+  var lc = linhasDeCopos_(db, ctx.usuarioId, itens, 'VENDA', 'venda', vendaId, ts, dia, mats);
+  if (lc.led.length) filhos.push({ tabela: 'movimento_estoque', linhas: lc.led });
   db.gravar({ mae: { tabela: 'venda', obj: venda }, filhos: filhos });
   var msg = 'Venda registrada \u00B7 ' + fmtR_(total - desconto + totalSort) + (desconto > 0 ? ' (desconto de ' + fmtR_(desconto) + (promo ? ' \u00B7 ' + promo.nome : '') + ')' : '');
   var passou = ml > saldoAntes + 1e-9;
   if (passou) msg = 'Venda registrada, mas passou do café preparado. Registre o preparo que faltou ou ajuste no Fechamento.';
-  return { msg: msg, passou: passou, ticket: nSort ? ticketDaVenda_(db, vendaId) : null, numero: numero };
+  if (lc.negativos.length) msg += avisoFalta_(lc.negativos, 'esta venda');
+  return { msg: msg, passou: passou, atencao: lc.negativos.length > 0, ticket: nSort ? ticketDaVenda_(db, vendaId) : null, numero: numero };
 }
 
 /* ---------- preparo: rápido (só litros e quem) e materiais depois ---------- */
@@ -438,27 +459,31 @@ function cmdConsumo_(db, ctx, p) {
   idValido_(p.id);
   if (db.achar('consumo_proprio', p.id)) return { msg: 'Consumo já registrado.', repetido: true };
   exigirDiaAberto_(db, ctx);
-  var ts = ctx.agora.dataHora, dia = ctx.agora.diaLocal, quem = usuarioAtivo_(db, p.consumidor_id || ctx.usuarioId), vars = mapa_(db, 'produto_variante'), itens = [], copos = 0, ml = 0;
+  var ts = ctx.agora.dataHora, dia = ctx.agora.diaLocal, quem = usuarioAtivo_(db, p.consumidor_id || ctx.usuarioId), vars = mapa_(db, 'produto_variante'), mats = mapa_(db, 'material'), cu = custosUnitarios_(db), semCopo = p.sem_copo === true, itens = [], copos = 0, ml = 0;
   Object.keys(p.itens || {}).forEach(function (vid) {
     var q = parseInt(p.itens[vid], 10);
     if (!(q > 0)) return;
     if (q > 99) falha_('Quantidade grande demais.');
     var v = vars[vid];
     if (!v || !v.ativo) falha_('Produto indisponível.');
-    var cafe = v.tamanho_ml;
-    itens.push({ variante_id: vid, qtd: q, ml_cafe_unit: cafe, tamanho_ml: v.tamanho_ml });
+    var cafe = v.tamanho_ml, cp = semCopo ? { id: null, custo: 0 } : copoDoItem_(db, ts, vid, q, mats, cu);   // quem tomou diz se usou copo
+    itens.push({ variante_id: vid, qtd: q, ml_cafe_unit: cafe, tamanho_ml: v.tamanho_ml, copo_material_id: cp.id, custo_copo_centavos: cp.custo });
     copos += q; ml += q * cafe;
   });
   if (!itens.length) falha_('Escolha o que foi tomado.');
   var saldoAntes = cafeDoDia_(db, dia).saldo, numero = db.proximoNumero('consumo_proprio'), cid = p.id;
   var cab = nova_(ctx, { id: cid, numero: numero, usuario_id: ctx.usuarioId, consumidor_id: quem.id, data_hora: ts, dia_local: dia, copos: copos, ml_cafe: r3_(ml), observacao: null, status: 'ATIVO' });
-  db.gravar({ mae: { tabela: 'consumo_proprio', obj: cab }, filhos: [
+  var lc = linhasDeCopos_(db, ctx.usuarioId, itens, 'CONSUMO', 'consumo_proprio', cid, ts, dia, mats);
+  var filhos = [
     { tabela: 'consumo_proprio_item', linhas: itens.map(function (i) { return Object.assign({ id: novoId_(), consumo_id: cid }, i); }) },
     { tabela: 'movimento_cafe', linhas: [{ id: novoId_(), tipo: 'CONSUMO', ml_cafe: -r3_(ml), data_hora: ts, dia_local: dia, origem_tabela: 'consumo_proprio', origem_id: cid, estorno_de_id: null }] }
-  ] });
+  ];
+  if (lc.led.length) filhos.push({ tabela: 'movimento_estoque', linhas: lc.led });
+  db.gravar({ mae: { tabela: 'consumo_proprio', obj: cab }, filhos: filhos });
   var passou = ml > saldoAntes + 1e-9, msg = 'Consumo registrado \u00B7 ' + copos + (copos === 1 ? ' copo' : ' copos') + ' \u00B7 ' + fmtN_(ml) + ' ml de café (' + quem.nome + '). Não entra como venda.';
   if (passou) msg += ' Passou do café preparado: registre o preparo que faltou ou ajuste no Fechamento.';
-  return { msg: msg, passou: passou, numero: numero };
+  if (lc.negativos.length) msg += avisoFalta_(lc.negativos, 'este consumo');
+  return { msg: msg, passou: passou, atencao: lc.negativos.length > 0, numero: numero };
 }
 
 function cmdPerdaCafe_(db, ctx, p) {
