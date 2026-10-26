@@ -38,12 +38,12 @@
     estoque: [['saldos', 'Saldos'], ['movs', 'Movimentos'], ['mexer', 'Ajustar / transferir']],
     cadastros: [['materiais', 'Materiais'], ['produtos', 'Produtos e preços'], ['receitas', 'Receitas'], ['listas', 'Listas'], ['promos', 'Promoções']],
     financeiro: [['resultado', 'Resultado e payback'], ['lanc', 'Lançamentos']],
-    clientes: [['lista', 'Clientes'], ['clube', 'Clube'], ['sorteio', 'Sorteio']],
+    clientes: [['clube', 'Clientes'], ['sorteio', 'Sorteio']],
     paineis: [['geral', 'Geral'], ['dias', 'Dia a dia'], ['vendas', 'Vendas'], ['destino', 'Destino do café'], ['estoque', 'Estoque'], ['compras', 'Compras'], ['producao', 'Produção'], ['fin', 'Financeiro'], ['sorteio', 'Sorteio']]
   };
   var S = {
     cafeEm: ler('cafe_cafe_em') || 'colher',
-    uid: null, user: null, usuarios: [], tela: 'venda', sub: { estoque: 'saldos', cadastros: 'materiais', financeiro: 'resultado', paineis: 'geral', clientes: 'lista' },
+    uid: null, user: null, usuarios: [], tela: 'venda', sub: { estoque: 'saldos', cadastros: 'materiais', financeiro: 'resultado', paineis: 'geral', clientes: 'clube' },
     v: {}, msg: null, ocupado: 0, ids: {}, seq: 0,
     cart: {}, pay: null, ticket: null, vs: { sim: false, n: 1, cliente: null, busca: '', res: [], total: 0, ativa: false },
     prep: { litros: 1, quem: null, plan: {}, aj: {}, ajTxt: {}, comMat: false, completando: null, mostraPlano: false, base: 'CAFE' }, recBase: 'CAFE', rd: {}, pend: 0, atualizar: false, desc: { aberto: false, txt: '', promo: null }, promoNova: '', compra: { mat: null, n: 1, valorTxt: '', valorManual: false, forn: null, corrige: null, novoLocal: '' },
@@ -563,23 +563,12 @@
         muted('Guardamos só nome, telefone e e-mail, para o cliente não precisar se cadastrar de novo. Vale pedir o OK dele para guardar os dados.') + btn(f.id ? 'Salvar alterações' : f.volta === 'venda' ? 'Cadastrar e voltar à venda' : 'Cadastrar cliente', 'cli-salvar', null, { dis: S.ocupado })) + '</div>');
     }
     var v = V(); if (!v) return carregando();
-    if (sub === 'lista') {
-      h += '<div class="sec">' + card(rotulo('cli-q', 'Filtrar clientes') + entrada('cli-q', S.cli.q, { ph: 'Nome, telefone, e-mail ou número' }) + muted(v.total + (v.total === 1 ? ' cliente cadastrado' : ' clientes cadastrados') + ' \u00B7 ' + v.comNumeros + ' com números ativos') + btn('Novo cliente', 'cli-novo'), 'full') +
-        '<div id="cli-res" class="dc">' + htmlResClientes(v) + '</div></div>';
-    } else if (sub === 'clube') {
+    if (sub === 'clube') {
       h += telaClube(v);
     } else {
       h += telaSorteio(v);
     }
     return corpo(h);
-  }
-  function htmlResClientes(v) {
-    return v.clientes.map(function (c) {
-          return card(linha('<div><div class="nm">' + esc(c.nome) + '</div>' + muted(c.codigo + ' \u00B7 ' + c.telefone) + muted(c.email) + (c.credito ? muted('Crédito: ' + fmtR(c.credito)) : '') + '</div>', chip(c.ativo ? 'Ativo' : 'Inativo', c.ativo, 'cli-ativo', c.id + '|' + (c.ativo ? 0 : 1))) +
-            (c.numeros.length ? '<div class="numbox">' + lbl(c.numeros.length + (c.numeros.length === 1 ? ' número ativo' : ' números ativos')) + '<div class="mono' + (S.cli0.todos[c.id] ? ' cols' : '') + '">' + esc(linhasNum(S.cli0.todos[c.id] || c.numeros.length <= 5 ? c.numeros : c.numeros.slice(0, 5))) + '</div>' + (c.numeros.length > 5 ? ghost(S.cli0.todos[c.id] ? 'Mostrar menos' : 'Ver todos os ' + c.numeros.length, 'cli-todos', c.id) : '') + '</div>' : muted('Nenhum número ativo')) +
-            '<div class="row2">' + btn('Vender', 'cli-vender', c.id, { dis: !c.ativo }) + ghost('Dar número', 'cli-dar', c.id) + ghost('Editar', 'cli-editar', c.id) + '</div>');
-    }).join('') + (v.encontrados > v.mostrando ? muted('Mostrando ' + v.mostrando + ' de ' + v.encontrados + ': use o filtro para achar os outros.') : '') +
-      (v.clientes.length ? '' : card(muted(v.total === 0 ? 'Nenhum cliente cadastrado ainda. Toque em "Novo cliente".' : 'Nenhum cliente encontrado para esse filtro.')));
   }
   function htmlResNq(v) {
     return '<div class="rows">' + v.conferir.map(function (x) { return '<div class="it"><div><div class="nm">' + esc(nb(x.titulo)) + '</div>' + muted(x.dono) + '</div><span class="tag ' + (x.ativo ? 'okk' : '') + '">' + (x.ativo ? 'ATIVO' : 'SORTEIO ' + x.rodada) + '</span></div>'; }).join('') + '</div>' +
@@ -594,13 +583,13 @@
   }
   function telaClube(v) {
     if (v.detalhe) return telaClienteDetalhe(v.detalhe);
-    return '<div class="sec">' + card(rotulo('cli-q', 'Filtrar por nome') + entrada('cli-q', S.cli.q, { ph: 'Nome do cliente' }) +
+    return '<div class="sec">' + card(rotulo('cli-q', 'Filtrar clientes') + entrada('cli-q', S.cli.q, { ph: 'Nome, telefone, e-mail ou número' }) + btn('Novo cliente', 'cli-novo') +
       muted(v.comCompra + ' de ' + v.total + (v.total === 1 ? ' cliente tem' : ' clientes têm') + ' compras ligadas a ele \u00B7 ' + v.pctCopos + '% dos copos vendidos foram para clientes do clube. Ligue o cliente na tela de Venda para acompanhar o que cada um compra. Quem toma ' + v.minimo + ' cafés no dia pode ganhar um número do sorteio (quem dá o número é você).' + (v.creditoTotal ? ' Crédito em aberto com os clientes: ' + fmtR(v.creditoTotal) + '.' : '')), 'full') +
       '<div id="clube-res" class="list full">' + htmlClubeLista(v) + '</div></div>';
   }
   function telaClienteDetalhe(d) {
     var motivo = S.cli.motivo != null ? S.cli.motivo : d.motivo, ativos = d.numeros.filter(function (n) { return n.ativo; }).length;
-    var h = card(linha('<div><div class="nm">' + esc(d.nome) + '</div>' + muted(d.contato + ' \u00B7 ' + d.email) + '</div>', ghost('Voltar ao clube', 'cli-fechar')), 'full') +
+    var h = card(linha('<div><div class="nm">' + esc(d.nome) + '</div>' + muted(d.contato + ' \u00B7 ' + d.email) + '</div>', ghost('Voltar', 'cli-fechar')) + '<div class="row2">' + btn('Vender', 'cli-vender-det', null, { dis: !d.ativo || S.ocupado }) + ghost('Editar dados', 'cli-editar-det') + chip(d.ativo ? 'Ativo' : 'Inativo', d.ativo, 'cli-ativo', d.id + '|' + (d.ativo ? 0 : 1)) + '</div>', 'full') +
       tiles([{ lbl: 'Copos', val: String(d.copos) }, { lbl: 'Faturamento', val: fmtR(d.fat) }, { lbl: 'Dias que veio', val: String(d.nDias) }, { lbl: 'Média por dia', val: fmtN(d.media) + ' copos' }, { lbl: 'Com desconto', val: d.comDesconto + (d.comDesconto === 1 ? ' venda' : ' vendas') }, { lbl: 'Última vez', val: d.ultima || '\u2014' }]) +
       card(lbl('Café preferido') + (d.favorito ? '<div class="nm">' + esc(nb(d.favorito)) + '</div>' : muted('Sem compras ligadas a ele ainda.')) + (d.desde ? muted('Cliente desde ' + d.desde) : '')) +
       card(rotulo('cli-motivo', 'Por que compra, o que gosta') + entrada('cli-motivo', motivo, { ph: 'Ex.: toma de manhã, gosta com canela' }) + btn('Salvar anotação', 'cli-motivo-salvar', null, { dis: S.ocupado || String(motivo).trim() === d.motivo })) +
@@ -719,7 +708,7 @@
       chamar('ver', q).then(function (r) {
         if (n !== seqBusca || !r.ok || S.tela !== 'clientes') return;
         guardarVista(q, r);
-        var ok = q.sub === 'sorteio' ? parcial('nq-res', htmlResNq(r)) : q.sub === 'clube' ? (!r.detalhe && parcial('clube-res', htmlClubeLista(r))) : parcial('cli-res', htmlResClientes(r));
+        var ok = q.sub === 'sorteio' ? parcial('nq-res', htmlResNq(r)) : (!r.detalhe && parcial('clube-res', htmlClubeLista(r)));
         if (!ok) render();
       }).catch(function () { });
     }, 250);
@@ -920,21 +909,22 @@
     /* clientes */
     'cli-novo': function () { S.cli.form = { id: '', nome: '', tel: '', email: '', volta: '' }; S.sub.clientes = 'form'; S.msg = null; render(); },
     'cli-editar': function (v) { var c = V().clientes.filter(function (x) { return x.id === v; })[0]; S.cli.form = { id: c.id, nome: c.nome, tel: c.telefone, email: c.email, volta: '' }; S.sub.clientes = 'form'; S.msg = null; render(); },
-    'cli-voltar': function () { var volta = S.cli.form && S.cli.form.volta; S.cli.form = null; if (volta === 'venda') { S.tela = 'venda'; carregar(); } else { S.sub.clientes = 'lista'; carregar(); } },
+    'cli-voltar': function () { var volta = S.cli.form && S.cli.form.volta; S.cli.form = null; if (volta === 'venda') { S.tela = 'venda'; carregar(); } else { S.sub.clientes = 'clube'; carregar(); } },
     'cli-salvar': function () {
       var f = S.cli.form, volta = f.volta;
       agir('cliente.salvar', { id: f.id || null, novo_id: idDe('cliente'), nome: f.nome, telefone: f.tel, email: f.email }, {
         semVista: true,
         depois: function (r) {
-          limparId('cliente'); S.cli.form = null; S.sub.clientes = 'lista';
+          limparId('cliente'); S.cli.form = null; S.sub.clientes = 'clube';
           if (volta === 'venda') { chamar('cliente.mascarado', { id: r.cliente_id }).then(function (m) { if (m.ok && m.cliente) { restaurarVenda(m.cliente); aviso(r.msg + ' Cliente ligado à venda.', false); render(); } }); }
           else carregar();
         }
       });
     },
-    'cli-todos': function (v) { S.cli0.todos[v] = !S.cli0.todos[v]; var el = document.getElementById('cli-res'); if (el && V()) { el.innerHTML = fixNb(htmlResClientes(V())); } else render(); },
     'cli-abrir': function (v) { S.cli.det = v; S.cli.motivo = null; carregar(); },
     'cli-fechar': function () { S.cli.det = null; S.cli.motivo = null; carregar(); },
+    'cli-vender-det': function () { chamar('cliente.mascarado', { id: S.cli.det }).then(function (m) { if (m.ok && m.cliente) restaurarVenda(m.cliente); }); },
+    'cli-editar-det': function () { var d = V().detalhe; S.cli.form = { id: d.id, nome: d.nome, tel: d.contato, email: d.email, volta: '' }; S.sub.clientes = 'form'; S.msg = null; render(); },
     'cli-motivo-salvar': function () { agir('cliente.motivo', { id: S.cli.det, motivo: S.cli.motivo }, { depois: function () { S.cli.motivo = null; } }); },
     'cli-cred-dep': function () { lancarCredito('DEPOSITO'); },
     'cli-cred-uso': function () { lancarCredito('USO'); },
@@ -942,11 +932,9 @@
       var c = S.vs.cliente; if (!c) return;
       agir('credito.lancar', { id: idDe('credito'), cliente_id: c.id, tipo: 'USO', valor_centavos: Number(v), observacao: 'venda' }, { depois: function () { limparId('credito'); chamar('cliente.mascarado', { id: c.id }).then(function (m) { if (m.ok && m.cliente && S.vs.cliente && S.vs.cliente.id === c.id) { S.vs.cliente = m.cliente; render(); } }).catch(function () { }); } });
     },
-    'cli-dar': function (v) { agir('numero.dar', { id: idDe('numero'), cliente_id: v, motivo: 'Dado à mão' }, { depois: function () { limparId('numero'); } }); },
     'cli-dar-det': function () { agir('numero.dar', { id: idDe('numero'), cliente_id: S.cli.det, motivo: 'Dado à mão' }, { depois: function () { limparId('numero'); } }); },
     'num-cancelar': function (v) { agir('numero.cancelar', { id: v }); },
     'cli-ativo': function (v) { var p = par(v); agir('cliente.ativo', { id: p[0], ativo: p[1] === '1' }); },
-    'cli-vender': function (v) { var c = V().clientes.filter(function (x) { return x.id === v; })[0]; chamar('cliente.mascarado', { id: c.id }).then(function (m) { if (m.ok && m.cliente) { restaurarVenda(m.cliente); } }); },
     'ns-pedir': function () { S.novoSorteio = true; render(); },
     'ns-nao': function () { S.novoSorteio = false; render(); },
     'ns-sim': function () { agir('sorteio.novo', { id: idDe('sorteio') }, { depois: function () { limparId('sorteio'); S.novoSorteio = false; } }); },

@@ -500,9 +500,9 @@ function viewClientes_(db, ctx, sub, q, cid) {
     };
   }
   if (sub === 'clube') {
-    var an = analiseClientes_(db, ctx), numPor = {}, filtro = String(q || '').trim().toLowerCase();
+    var an = analiseClientes_(db, ctx), numPor = {};
     est.validos.forEach(function (n) { numPor[n.cliente_id] = (numPor[n.cliente_id] || 0) + 1; });
-    var lista = db.t('cliente').filter(function (c) { return !filtro || c.nome.toLowerCase().indexOf(filtro) >= 0; }).map(function (c) {
+    var ff = filtrarClientes_(db, q), lista = (ff.ativa ? ff.lista : db.t('cliente')).map(function (c) {
       var a = an.por[c.id], fav = a ? favoritoDe_(a.produtos) : null, dias = a ? Object.keys(a.dias).sort() : [];
       return { id: c.id, nome: c.nome, ativo: c.ativo, copos: a ? a.copos : 0, fat: a ? a.fat : 0, nVendas: a ? a.vendas.length : 0, ultima: dias.length ? diaBr_(dias[dias.length - 1]).slice(0, 5) : '', favorito: fav ? fav.nome : null, numeros: numPor[c.id] || 0, temMotivo: !!c.motivo, credito: credPor[c.id] || 0 };
     }).sort(function (x, y) { return y.copos - x.copos || x.nome.localeCompare(y.nome, 'pt-BR'); });
