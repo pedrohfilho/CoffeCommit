@@ -1555,6 +1555,31 @@ grupo('crédito do cliente: troco que fica para cafés futuros');
   ok(inst.criadas.length === 1 && inst.criadas[0] === 'credito_cliente' && T3.ch(T3.pedro, 'credito.lancar', { id: T3.uid(), cliente_id: 'cli-joao-exemplo', tipo: 'DEPOSITO', valor_centavos: 100 }).ok, 'planilha antiga: o Instalar cria a aba nova sem mexer nos dados', inst.criadas);
 }
 
+grupo('gráficos: dados da série diária, das horas e da rosca do destino');
+{
+  const T = iniciar({ exemplos: true });
+  T.avancar(60 * 24 * 3);
+  T.ch(T.pedro, 'venda.registrar', { id: T.uid(), itens: { 'var-n50': 2 }, forma_pagamento_id: 'fp-pix' });
+  const painel = (sub, periodo) => T.ch(T.pedro, 'ver', { tela: 'paineis', sub: sub, periodo: periodo || 'tudo' });
+  const g = painel('geral'), hoje = H(T), vA = T.db().t('venda').filter((v) => v.status === 'ATIVO');
+  ok(g.serie.length === 14 && g.serie[13].dia === hoje && g.serie.every((x, i, l) => i === 0 || x.dia > l[i - 1].dia), 'série do Geral: 14 dias seguidos, terminando hoje');
+  const ini = g.serie[0].dia, soma = (a, f) => a.reduce((s, x) => s + f(x), 0), dentro = vA.filter((v) => v.dia_local >= ini && v.dia_local <= hoje);
+  ok(soma(g.serie, (x) => x.f) === soma(dentro, (v) => v.total_cafe_centavos + v.total_sorteio_centavos) && soma(g.serie, (x) => x.c) === soma(dentro, (v) => v.copos) && g.serie[13].c === 2, 'faturamento e copos da série batem com as vendas dos 14 dias (hoje: 2 copos)', g.serie.slice(-4));
+  ok(g.serie.filter((x) => x.c === 0).length === 12 && g.serie.find((x) => x.dia === H(T)).f === 200, 'dias sem venda entram com zero (a série não pula dias)', g.serie.map((x) => x.c));
+  ok(painel('vendas').serie === null && painel('destino').serie === null && g.colunas === null && g.rosca === null, 'cada painel só traz os dados do gráfico que usa');
+  const vd = painel('vendas');
+  const horas = vd.colunas.map((c) => parseInt(c.lbl, 10)), porHora = {};
+  vA.forEach((v) => { const h = T.ctx.formatarLocal_(v.data_hora, 'HH'); porHora[h] = (porHora[h] || 0) + 1; });
+  ok(horas.every((h, i) => i === 0 || h === horas[i - 1] + 1) && vd.colunas.reduce((s, c) => s + c.n, 0) === vA.length && vd.colunas.every((c) => c.n === (porHora[String(parseInt(c.lbl, 10)).padStart(2, '0')] || 0)), 'vendas por hora: horas seguidas (sem buracos) e a soma bate com as vendas', vd.colunas);
+  const ds = painel('destino'), ro = ds.rosca;
+  ok(ro.length === 5 && ro.map((x) => x.cor).join() === 'pago,gratis,desc,consumo,perda' && ro[0].n === 1250 || ro[0].n > 0, 'rosca do destino: 5 fatias com as cores de cada destino', ro);
+  const A = T.ctx.agregados_(T.db(), T.ctx.AGORA_TESTE().dataHora, null);
+  ok(ro[0].n + ro[1].n + ro[2].n === A.vendMl && ro[3].n === A.consumoMl && ro[4].n === A.perdaMl, 'as fatias somam o que saiu: vendido + grátis + com desconto = café nas vendas', ro.map((x) => x.n));
+  ok(painel('vendas').colunas.length >= 1 && T.ch(T.pedro, 'ver', { tela: 'paineis', sub: 'vendas', periodo: 'tudo', pessoa: 'usr-digo' }).colunas.every((c) => c.n >= 0), 'o filtro por pessoa também vale para as colunas');
+  const vazio = iniciar(), pv = vazio.ch(vazio.pedro, 'ver', { tela: 'paineis', sub: 'vendas', periodo: 'tudo' }), gv = vazio.ch(vazio.pedro, 'ver', { tela: 'paineis', sub: 'geral', periodo: 'tudo' });
+  ok(pv.ok && pv.colunas.length === 0 && gv.serie.length === 14 && gv.serie.every((x) => x.c === 0 && x.f === 0), 'sem registros: sem colunas e série zerada, sem erro');
+}
+
 grupo('dia a dia: dias com e sem serviço');
 {
   const T = iniciar({ exemplos: true });

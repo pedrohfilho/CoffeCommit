@@ -296,6 +296,20 @@ function produtosETamanhos_(db, A, vars, prods) {
   return itens;
 }
 
+/* dados dos gráficos: faturamento e copos dos últimos n dias (com zero nos dias sem venda) e vendas por hora, sem buracos */
+function serieDiaria_(db, hoje, n) {
+  var dias = [], d = hoje, mapa = {};
+  for (var i = 0; i < n; i++) { dias.unshift(d); d = diaAnterior_(d); }
+  dias.forEach(function (x) { mapa[x] = { dia: x, f: 0, c: 0 }; });
+  db.t('venda').forEach(function (v) { if (v.status === 'ATIVO' && mapa[v.dia_local]) { mapa[v.dia_local].f += v.total_cafe_centavos + v.total_sorteio_centavos; mapa[v.dia_local].c += v.copos; } });
+  return dias.map(function (x) { return mapa[x]; });
+}
+function colunasPorHora_(A) {
+  var hs = Object.keys(A.porHora).map(Number).sort(function (a, b) { return a - b; }), out = [];
+  if (!hs.length) return out;
+  for (var h = hs[0]; h <= hs[hs.length - 1]; h++) { var k = String(h).padStart(2, '0'); out.push({ lbl: k + 'h', n: A.porHora[k] || 0 }); }
+  return out;
+}
 /* pessoa (id) filtra só os painéis de venda e destino do café: vendas pelo vendedor, consumo por quem tomou, preparo e perda por quem registrou */
 function pessoaValida_(db, id) { return id && db.t('usuario').some(function (u) { return u.id === id && u.ativo; }) ? id : null; }
 function viewPaineis_(db, ctx, sub, periodo, pessoaPedida) {
@@ -309,6 +323,7 @@ function viewPaineis_(db, ctx, sub, periodo, pessoaPedida) {
     P = { tiles: [T('Faturamento dos cafés', fmtR_(A.fat)), T('Resultado', fmtR_(A.resultado)), T('Copos vendidos', String(A.copos)), T('Litros preparados', fmtN_(A.litros) + ' L')],
       t1: 'Mais vendidos', b1: barras_(produtosETamanhos_(db, A, vars, prods), nCopos_),
       t2: 'Faturamento por forma de pagamento', b2: barras_(Object.keys(A.porPag).map(function (k) { return { lbl: k, n: A.porPag[k] }; }), fmtR_) };
+    P.serie = serieDiaria_(db, ctx.agora.diaLocal, 14);
   } else if (sub === 'vendas') {
     var horas = Object.keys(A.porHora).sort();
     P = { tiles: [T('Vendas', String(A.nVendas)), T('Ticket médio', fmtR_(A.nVendas ? A.fat / A.nVendas : 0)), T('Copos', String(A.copos)), T('Copos pagos', String(A.copos - A.copGratis - A.copParcial)), T('Copos grátis', String(A.copGratis)), T('Copos com desconto', String(A.copParcial)), T('Café nas vendas', fmtN_(A.vendMl) + ' ml'), T('Descontos dados', fmtR_(A.desc) + (A.nDesc ? ' \u00B7 ' + A.nDesc + (A.nDesc === 1 ? ' venda' : ' vendas') : ''))],
@@ -316,6 +331,7 @@ function viewPaineis_(db, ctx, sub, periodo, pessoaPedida) {
       t2: 'Copos por tamanho', b2: barras_(Object.keys(A.porTam).map(Number).concat(vars.map(function (v) { return v.tamanho_ml; }).filter(function (t, i, l) { return !A.porTam[t] && l.indexOf(t) === i; })).sort(function (a, b) { return a - b; }).map(function (ml) { return { lbl: ml + ' ml', n: A.porTam[ml] || 0 }; }), nCopos_),
       t3: 'Faturamento por quem vendeu', b3: barras_(A.us.filter(function (u) { return !pessoa || u.id === pessoa; }).map(function (u) { return { lbl: u.nome, n: A.fatPess[u.id] || 0 }; }), fmtR_),
       t4: 'Dinheiro vivo recebido por quem vendeu', b4: barras_(A.us.filter(function (u) { return !pessoa || u.id === pessoa; }).map(function (u) { return { lbl: u.nome, n: A.dinPess[u.id] || 0 }; }), fmtR_) };
+    P.colunas = colunasPorHora_(A);
   } else if (sub === 'destino') {
     var cPago = A.copos - A.copGratis - A.copParcial, mPago = A.vendMl - A.mlGratis - A.mlParcial, entrou = A.prodMl + A.acertoMl;
     var saiu = A.vendMl + A.consumoMl + A.perdaMl, falta = r3_(entrou - saiu);
@@ -323,6 +339,7 @@ function viewPaineis_(db, ctx, sub, periodo, pessoaPedida) {
     P = { tiles: [T('Vendido (pago)', cm(cPago, mPago)), T('Grátis', cm(A.copGratis, A.mlGratis)), T('Com desconto', cm(A.copParcial, A.mlParcial)), T('Total nas vendas', cm(A.copos, A.vendMl)), T('Consumo nosso', cm(A.consumoCopos, A.consumoMl)), T('Perdido', fmtN_(A.perdaMl) + ' ml'), T('Preparado', fmtN_(entrou) + ' ml'), T('Ainda sem destino', fmtN_(falta) + ' ml')],
       t1: 'Para onde foi o café (ml)', b1: barras_([{ lbl: 'Vendido (pago)', n: mPago }, { lbl: 'Grátis', n: A.mlGratis }, { lbl: 'Com desconto', n: A.mlParcial }, { lbl: 'Consumo nosso', n: A.consumoMl }, { lbl: 'Perdido', n: A.perdaMl }], function (n) { return fmtN_(n) + ' ml'; }),
       t2: 'Copos por destino', b2: barras_([{ lbl: 'Vendido (pago)', n: cPago }, { lbl: 'Grátis', n: A.copGratis }, { lbl: 'Com desconto', n: A.copParcial }, { lbl: 'Consumo nosso', n: A.consumoCopos }], nCopos_) };
+    P.rosca = [{ lbl: 'Vendido (pago)', n: mPago, cor: 'pago' }, { lbl: 'Grátis', n: A.mlGratis, cor: 'gratis' }, { lbl: 'Com desconto', n: A.mlParcial, cor: 'desc' }, { lbl: 'Consumo nosso', n: A.consumoMl, cor: 'consumo' }, { lbl: 'Perdido', n: A.perdaMl, cor: 'perda' }];
   } else if (sub === 'estoque') {
     var sal = saldosEstoque_(db), mats = db.t('material').filter(function (m) { return m.ativo && controla_(m); }), cafeId = materiaisChave_(db, ts).cafe;
     function totalMat(m) { return soma_(us, function (u) { return qtdEstoque_(sal, u.id, m.id); }); }
@@ -354,7 +371,7 @@ function viewPaineis_(db, ctx, sub, periodo, pessoaPedida) {
       t1: 'Números vendidos por sorteio', b1: barras_(Object.keys(porRodada).sort(function (a, b) { return a - b; }).map(function (k) { return { lbl: 'Sorteio nº ' + k + (Number(k) === est.rodadaAtual ? ' (atual)' : ''), n: porRodada[k] }; }), function (n) { return n + (n === 1 ? ' número' : ' números'); }),
       t2: 'Progresso do sorteio atual', b2: [{ lbl: 'Sorteio nº ' + est.rodadaAtual, val: nb_(est.nAtivos + ' de ' + est.meta + ' números'), pct: pctMeta }] };
   }
-  return { sub: sub, periodo: periodo, ignoraPeriodo: sub === 'estoque' || sub === 'sorteio', tiles: P.tiles, t1: P.t1, b1: P.b1, t2: P.t2, b2: P.b2, t3: P.t3 || null, b3: P.b3 || [], t4: P.t4 || null, b4: P.b4 || [], pessoa: pessoa || '', usuarios: A.us.map(function (u) { return { id: u.id, nome: u.nome }; }), comPessoa: sub === 'vendas' || sub === 'destino' };
+  return { sub: sub, periodo: periodo, ignoraPeriodo: sub === 'estoque' || sub === 'sorteio', tiles: P.tiles, t1: P.t1, b1: P.b1, t2: P.t2, b2: P.b2, t3: P.t3 || null, b3: P.b3 || [], t4: P.t4 || null, b4: P.b4 || [], pessoa: pessoa || '', usuarios: A.us.map(function (u) { return { id: u.id, nome: u.nome }; }), comPessoa: sub === 'vendas' || sub === 'destino', colunas: P.colunas || null, rosca: P.rosca || null, serie: P.serie || null };
 }
 
 /* ---------------- Dia a dia (calendário de operação) ---------------- */

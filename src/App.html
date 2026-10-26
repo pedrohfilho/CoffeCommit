@@ -168,6 +168,54 @@
   function carregando() { return '<div class="body">' + card(muted('Carregando\u2026')) + '</div>'; }
   function tiles(l) { return '<div class="tiles">' + l.map(function (x) { return '<div class="tile">' + lbl(x.lbl) + '<div class="tv">' + esc(x.val) + '</div></div>'; }).join('') + '</div>'; }
   function barras(l) { return '<div class="list">' + l.map(function (b) { return '<div><div class="row"><span class="nm">' + esc(b.lbl) + '</span><span class="nm">' + esc(b.val) + '</span></div><div class="bar"><i style="width:' + b.pct + '%"></i></div></div>'; }).join('') + '</div>'; }
+  /* ============================ GRÁFICOS (SVG puro, sem biblioteca) ============================ */
+  var COR = { pago: '#1F7A4D', gratis: '#C58A00', desc: '#C9773F', consumo: '#2B6CB0', perda: '#B3261E', base: '#A8481A', escuro: '#2A1A12', grade: '#E4D6C8' };
+  function fmtGraf(f, n) { return f ? f(n) : String(n); }
+  /* colunas: itens [{ lbl, n, rot?, cor?, destaque? }]; o rótulo aparece de tantos em tantos para caber no celular */
+  function svgColunas(itens, o) {
+    o = o || {};
+    var W = 320, H = 150, pt = 16, pb = 22, n = itens.length, max = Math.max.apply(null, [1].concat(itens.map(function (i) { return i.n; })));
+    var bw = Math.min(W / Math.max(n, 1), 44), off = (W - bw * n) / 2, gap = Math.min(5, bw * 0.22), larg = Math.max(2, bw - gap), a = H - pt - pb, passo = o.passo || Math.max(1, Math.ceil(n / 8));
+    var resumo = itens.filter(function (i) { return i.n > 0; }).map(function (i) { return i.lbl + ': ' + fmtGraf(o.fmt, i.n); }).join('; ');
+    var s = '<svg class="gf" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc((o.titulo || 'Gráfico de colunas') + '. ' + (resumo || 'Sem dados.')) + '"><line x1="0" y1="' + (H - pb) + '" x2="' + W + '" y2="' + (H - pb) + '" stroke="' + COR.grade + '" stroke-width="1.5"></line>';
+    itens.forEach(function (it, i) {
+      var h = it.n > 0 ? Math.max(3, it.n / max * a) : 0, x = off + i * bw + (bw - larg) / 2, y = H - pb - h, cx = x + larg / 2;
+      if (h > 0) s += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + larg.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="2" fill="' + (it.cor || COR.base) + '"><title>' + esc(it.lbl + ': ' + fmtGraf(o.fmt, it.n)) + '</title></rect>';
+      if (h > 0 && (n <= 14 || it.n === max)) s += '<text x="' + cx.toFixed(1) + '" y="' + (y - 3).toFixed(1) + '" text-anchor="middle" font-size="11" font-weight="700">' + esc(fmtGraf(o.fmtCurto || o.fmt, it.n)) + '</text>';
+      if (i % passo === 0 || it.destaque) s += '<text class="' + (it.destaque ? '' : 'mu') + '" x="' + cx.toFixed(1) + '" y="' + (H - 7) + '" text-anchor="middle" font-size="11" font-weight="' + (it.destaque ? 700 : 500) + '">' + esc(it.rot || it.lbl) + '</text>';
+    });
+    return s + '</svg>';
+  }
+  /* rosca: itens [{ lbl, n, cor }] (cor é uma chave de COR); a legenda traz o valor e a parte de cada um */
+  function svgRosca(itens, fmt, centro) {
+    var total = itens.reduce(function (s, i) { return s + i.n; }, 0), R = 50, C = 2 * Math.PI * R, desloc = 0;
+    var resumo = itens.filter(function (i) { return i.n > 0; }).map(function (i) { return i.lbl + ': ' + fmt(i.n); }).join('; ');
+    var s = '<svg class="gf rosca" viewBox="0 0 140 140" role="img" aria-label="' + esc('Rosca. ' + (resumo || 'Sem dados.')) + '"><circle cx="70" cy="70" r="' + R + '" fill="none" stroke="' + COR.grade + '" stroke-width="24"></circle>';
+    if (total > 0) itens.forEach(function (it) {
+      if (!(it.n > 0)) return;
+      var len = it.n / total * C;
+      s += '<circle cx="70" cy="70" r="' + R + '" fill="none" stroke="' + COR[it.cor] + '" stroke-width="24" stroke-dasharray="' + len.toFixed(2) + ' ' + (C - len).toFixed(2) + '" stroke-dashoffset="' + (-desloc).toFixed(2) + '" transform="rotate(-90 70 70)"><title>' + esc(it.lbl + ': ' + fmt(it.n)) + '</title></circle>';
+      desloc += len;
+    });
+    s += '<text x="70" y="68" text-anchor="middle" font-size="16" font-weight="700">' + esc(fmt(total)) + '</text><text class="mu" x="70" y="84" text-anchor="middle" font-size="11">' + esc(centro || 'no total') + '</text></svg>';
+    return '<div class="rosca-box">' + s + '<div class="lgd">' + itens.map(function (it) { var pct = total ? Math.round(it.n / total * 100) : 0; return '<div class="row"><span class="lgi"><i class="sw" style="background:' + COR[it.cor] + ';border-color:' + COR[it.cor] + '"></i>' + esc(it.lbl) + '</span><span class="nm">' + esc(nb(fmt(it.n) + ' \u00B7 ' + pct + '%')) + '</span></div>'; }).join('') + '</div></div>';
+  }
+  /* linha: pontos [{ n, rot }]; mostra o maior valor e o último */
+  function svgLinha(pontos, o) {
+    o = o || {};
+    var W = 320, H = 150, pl = 10, pr = 10, pt = 24, pb = 22, n = pontos.length, max = Math.max.apply(null, [1].concat(pontos.map(function (p) { return p.n; }))), a = H - pt - pb, iMax = -1;
+    pontos.forEach(function (p, i) { if (p.n === max && iMax < 0) iMax = i; });
+    function X(i) { return pl + (n > 1 ? i * (W - pl - pr) / (n - 1) : (W - pl - pr) / 2); }
+    function Y(v) { return H - pb - v / max * a; }
+    var resumo = pontos.map(function (p) { return p.rot + ': ' + fmtGraf(o.fmt, p.n); }).join('; ');
+    var s = '<svg class="gf" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc((o.titulo || 'Gráfico de linha') + '. ' + resumo) + '"><line x1="0" y1="' + (H - pb) + '" x2="' + W + '" y2="' + (H - pb) + '" stroke="' + COR.grade + '" stroke-width="1.5"></line>';
+    s += '<polyline fill="none" stroke="' + COR.base + '" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" points="' + pontos.map(function (p, i) { return X(i).toFixed(1) + ',' + Y(p.n).toFixed(1); }).join(' ') + '"></polyline>';
+    pontos.forEach(function (p, i) { s += '<circle cx="' + X(i).toFixed(1) + '" cy="' + Y(p.n).toFixed(1) + '" r="' + (i === n - 1 ? 5 : 3.2) + '" fill="' + (i === n - 1 ? COR.escuro : COR.base) + '"><title>' + esc(p.rot + ': ' + fmtGraf(o.fmt, p.n)) + '</title></circle>'; });
+    if (max > 0 && iMax >= 0) s += '<text x="' + Math.min(W - 30, Math.max(30, X(iMax))).toFixed(1) + '" y="' + (Y(max) - 8).toFixed(1) + '" text-anchor="middle" font-size="11" font-weight="700">' + esc(fmtGraf(o.fmt, max)) + '</text>';
+    if (iMax !== n - 1 && pontos[n - 1].n > 0) s += '<text x="' + (W - 30) + '" y="' + (Y(pontos[n - 1].n) - 9).toFixed(1) + '" text-anchor="middle" font-size="11" font-weight="700">' + esc(fmtGraf(o.fmt, pontos[n - 1].n)) + '</text>';
+    [0, Math.floor((n - 1) / 2), n - 1].forEach(function (i, k) { if (k > 0 && i === 0) return; s += '<text class="mu" x="' + X(i).toFixed(1) + '" y="' + (H - 7) + '" text-anchor="' + (i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle') + '" font-size="11">' + esc(pontos[i].rot) + '</text>'; });
+    return s + '</svg>';
+  }
   function linhasNum(l) { return l.map(function (n) { return 'N\u00BA ' + pad4(n.numero) + '   c\u00F3digo ' + n.token; }).join('\n'); }
 
   /* ============================ VENDA ============================ */
@@ -443,6 +491,8 @@
       if (d === S.diaSel) cls += ' sel';
       cel += '<button type="button" class="' + cls + '" data-a="dia-sel" data-v="' + d + '" aria-label="' + k + ' de ' + MESES[b - 1] + ', ' + rot + '" aria-pressed="' + (d === S.diaSel) + '"><span class="dn">' + k + '</span><span class="dv">' + txt + '</span></button>';
     }
+    var colunasDoMes = [];
+    for (var q2 = 1; q2 <= n; q2++) { var dq = v.mes + '-' + String(q2).padStart(2, '0'), xq = v.dias[dq]; colunasDoMes.push({ lbl: q2 + '/' + String(b).padStart(2, '0'), rot: String(q2), n: xq ? valorDia(xq, m) : 0, destaque: dq === hoje }); }
     var legenda = '<div class="lg"><span><i class="sw l1"></i><i class="sw l2"></i><i class="sw l3"></i><i class="sw l4"></i> mais ' + (m === 'f' ? 'faturamento' : m === 'l' ? 'café preparado' : 'copos') + '</span><span><i class="sw on0"></i> teve serviço, sem venda</span><span><i class="sw sem"></i> sem serviço</span></div>';
     var det = '';
     if (S.diaSel && S.diaSel.slice(0, 7) === v.mes) {
@@ -457,7 +507,7 @@
       card('<div class="row">' + '<button type="button" class="ghost" data-a="dia-mes" data-v="-1" aria-label="Mês anterior"' + (v.mes <= v.primeiroMes ? ' disabled' : '') + '>‹</button><span class="mid">' + MESES[b - 1].charAt(0).toUpperCase() + MESES[b - 1].slice(1) + ' de ' + a + '</span><button type="button" class="ghost" data-a="dia-mes" data-v="1" aria-label="Próximo mês"' + (v.mes >= v.mesHoje ? ' disabled' : '') + '>›</button></div>' +
         '<div class="chips" role="group" aria-label="Medida">' + [['c', 'Copos'], ['f', 'Faturamento'], ['l', 'Litros']].map(function (x) { return chip(x[1], m === x[0], 'dia-metrica', x[0]); }).join('') + '</div>' +
         '<div class="chips" role="group" aria-label="Pessoa">' + chip('Todos', !v.pessoa, 'pessoa', 'todos') + (v.usuarios || []).map(function (u) { return chip(u.nome, v.pessoa === u.id, 'pessoa', u.id); }).join('') + '</div>' + '<div class="calh">' + DIAS_SEM.map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div><div class="cal">' + cel + '</div>' + legenda, 'full cal-card') +
-      '<div class="dcol">' + tiles(v.tiles) + det + melhor + '</div>' +
+      '<div class="dcol">' + tiles(v.tiles) + det + melhor + card(lbl('Por dia: ' + (m === 'f' ? 'faturamento' : m === 'l' ? 'café preparado' : 'copos')) + svgColunas(colunasDoMes, { passo: 5, fmt: function (nn) { return m === 'f' ? fmtR(nn * 100) : m === 'l' ? fmtN(nn) + ' L' : nn + (nn === 1 ? ' copo' : ' copos'); }, fmtCurto: function (nn) { return m === 'f' ? 'R$' + Math.round(nn) : m === 'l' ? fmtN(nn) : String(Math.round(nn)); }, titulo: 'Por dia no mês' })) + '</div>' +
       card(lbl('Dia da semana: média de copos nos dias de venda') + barras(v.semana)) + card(total) + '</div>');
   }
   function telaPaineis() {
@@ -465,7 +515,12 @@
     var v = V(); if (!v) return carregando();
     var nota = v.ignoraPeriodo ? 'Este painel mostra a situação de agora e não muda com o período.' : S.periodo === 'hoje' ? 'Só o que aconteceu hoje.' : S.periodo === '7d' ? 'Últimos 7 dias, contando hoje.' : 'Tudo desde o começo.';
     return corpo('<div class="chips" role="group" aria-label="Período">' + [['hoje', 'Hoje'], ['7d', '7 dias'], ['tudo', 'Tudo']].map(function (x) { return chip(x[1], S.periodo === x[0], 'periodo', x[0]); }).join('') + '</div>' + muted(nota) + (v.comPessoa ? '<div class="chips" role="group" aria-label="Pessoa">' + chip('Todos', !v.pessoa, 'pessoa', 'todos') + (v.usuarios || []).map(function (u) { return chip(u.nome, v.pessoa === u.id, 'pessoa', u.id); }).join('') + '</div>' : '') +
-      tiles(v.tiles) + card(lbl(v.t1) + barras(v.b1) + (v.b1.length ? '' : muted('Sem dados neste período.'))) + card(lbl(v.t2) + barras(v.b2) + (v.b2.length ? '' : muted('Sem dados neste período.'))) +
+      tiles(v.tiles) +
+      (v.serie ? card(lbl('Faturamento por dia (últimos 14 dias)') + svgLinha(v.serie.map(function (p) { return { n: p.f, rot: dmData(p.dia) }; }), { fmt: fmtR, titulo: 'Faturamento por dia' })) : '') +
+      (v.colunas && v.colunas.length ? card(lbl(v.t1) + svgColunas(v.colunas, { fmt: function (n) { return n + (n === 1 ? ' venda' : ' vendas'); }, fmtCurto: String, titulo: v.t1 })) :
+        v.rosca ? card(lbl(v.t1) + svgRosca(v.rosca, function (n) { return fmtN(n) + ' ml'; }, 'de café')) :
+        card(lbl(v.t1) + barras(v.b1) + (v.b1.length ? '' : muted('Sem dados neste período.')))) +
+      card(lbl(v.t2) + barras(v.b2) + (v.b2.length ? '' : muted('Sem dados neste período.'))) +
       (v.t3 ? card(lbl(v.t3) + barras(v.b3) + (v.b3.length ? '' : muted('Sem dados neste período.'))) : '') + (v.t4 ? card(lbl(v.t4) + barras(v.b4) + (v.b4.length ? '' : muted('Sem dados neste período.'))) : ''));
   }
 
