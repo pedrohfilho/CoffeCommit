@@ -1315,6 +1315,33 @@ grupo('copo baixa na venda e no consumo');
   ok(ant.length > 0 && ant.every((i) => i.custo_copo_centavos === 0) && T3.ch(T3.pedro, 'sistema.auditar').limpo, 'planilha antiga: os itens de venda existentes ganham custo de copo 0 e a auditoria segue limpa', ant.map((i) => i.custo_copo_centavos));
 }
 
+grupo('canela em colher e água só como custo');
+{
+  const T = iniciar({ exemplos: true });
+  ok(T.db().t('receita_cafe').every((r) => r.g_por_colher_canela === 3), 'as receitas da casa vêm com 3 g por colher de canela (para ajustar)');
+  const v0 = ver(T, T.pedro, 'preparo'), c0 = ver(T, T.pedro, 'cadastros', 'receitas');
+  ok(v0.receitas.CAFE['usr-pedro'].gPorColherCanela === 3 && c0.escopos[1].receita.gPorColherCanela === 3, 'as telas trazem os gramas da colher de canela');
+  const e = T.ch(T.pedro, 'receita.salvar', { usuario_id: 'usr-pedro', g_por_colher_canela: 2.5 });
+  ok(e.ok && T.db().t('receita_cafe').find((x) => x.usuario_id === 'usr-pedro' && !x.vigente_ate).g_por_colher_canela === 2.5, 'a receita guarda os gramas de cada colher de canela');
+  ok(/inválido/.test(T.ch(T.pedro, 'receita.salvar', { usuario_id: 'usr-pedro', g_por_colher_canela: 0 }).erro), 'colher de canela de 0 g é recusada');
+  ok(T.ch(T.pedro, 'receita.salvar', { usuario_id: 'usr-digo', base: 'CAFE_LEITE', agua_ml_por_litro: 500 }).ok && T.db().t('receita_cafe').find((x) => x.usuario_id === 'usr-digo' && x.base === 'CAFE_LEITE' && !x.vigente_ate).g_por_colher_canela === 3, 'receita nova de outro tipo herda a colher de canela da casa (3 g)');
+  const T3 = iniciar({ exemplos: true }), shR = T3.ss.getSheetByName('receita_cafe'), nR = T3.ctx.esquemaTabela_('receita_cafe').colunas.length;
+  shR.getRange(1, nR).setValue(''); shR.getRange(2, nR, 5, 1).clearContent();
+  T3.ctx.instalarPlanilha_(T3.ss, new Date().toISOString());
+  const rs = new T3.ctx.Banco(T3.ss, { semCache: true }).t('receita_cafe');
+  ok(rs.length === 2 && rs.every((x) => x.g_por_colher_canela === 3), 'planilha antiga: as receitas existentes ganham 3 g por colher de canela', rs.map((x) => x.g_por_colher_canela));
+  // água: só custo, a conta padrão separada, sem estoque
+  const ag = T.db().t('material').find((m) => m.id === 'mat-agua');
+  ok(ag.controla_estoque === false && ag.preco_padrao_centavos === 850 && ag.pacote_qtd === 20000, 'a água vem como custo de referência (galão de 20 L a R$ 8,50) e sem controle de estoque', ag);
+  const pr = T.ch(T.pedro, 'preparo.registrar', { id: T.uid(), litros: 1, quem: 'usr-pedro' });
+  const pid = T.db().t('preparo').slice(-1)[0].id, ca = T.db().t('preparo_consumo').find((c) => c.preparo_id === pid && c.material_id === 'mat-agua');
+  ok(pr.ok && ca && ca.qtd_real_qtd === 1000 && ca.custo_atual_centavos === 43 && ca.custo_padrao_centavos === 43, '1 L de café leva 1.000 ml de água, que custam R$ 0,43 (gravado no preparo)', ca);
+  ok(T.db().t('movimento_estoque').every((m) => !(m.origem_id === pid && m.material_id === 'mat-agua')) && !/Água/.test(pr.msg), 'a água não entra no livro do estoque nem vira aviso de falta');
+  const lit = T.ch(T.pedro, 'ver', { tela: 'paineis', sub: 'fin', periodo: 'tudo' }), custoAgua = T.db().t('preparo_consumo').filter((c) => c.material_id === 'mat-agua').reduce((s, c) => s + c.custo_atual_centavos, 0);
+  ok(custoAgua >= 43 && lit.ok, 'o custo da água entra no Resultado como parte do custo do preparo', custoAgua);
+  ok(T.ch(T.pedro, 'sistema.auditar').limpo && T3.ch(T3.pedro, 'sistema.auditar').limpo, 'auditoria limpa');
+}
+
 grupo('dia a dia: dias com e sem serviço');
 {
   const T = iniciar({ exemplos: true });

@@ -113,7 +113,7 @@ function clienteMascarado_(db, ctx, p) {
 function viewPreparo_(db, ctx) {
   var ts = ctx.agora.dataHora, dia = ctx.agora.diaLocal, prods = mapa_(db, 'produto'), us = mapa_(db, 'usuario');
   var receitaPor = {}, receitas = {};
-  function fmtR3(r, u) { return { colheres: r.colheres_por_litro, gPorColher: r.g_por_colher, filtros: r.filtros_por_litro, acucar: r.acucar_g_por_litro, agua: r.agua_ml_por_litro, leite: r.leite_ml_por_litro || 0, gPorColherAcucar: r.g_por_colher_acucar || 10, propria: r.usuario_id === u.id }; }
+  function fmtR3(r, u) { return { colheres: r.colheres_por_litro, gPorColher: r.g_por_colher, filtros: r.filtros_por_litro, acucar: r.acucar_g_por_litro, agua: r.agua_ml_por_litro, leite: r.leite_ml_por_litro || 0, gPorColherAcucar: r.g_por_colher_acucar || 10, gPorColherCanela: r.g_por_colher_canela || 3, propria: r.usuario_id === u.id }; }
   BASES_.forEach(function (b) { receitas[b] = {}; db.t('usuario').filter(ativoOk_).forEach(function (u) { receitas[b][u.id] = fmtR3(receitaVigente_(db, ts, u.id, b), u); }); });
   receitaPor = receitas.CAFE;   // compatível com a tela antiga: a receita do café
   var copo = {}, produtos = db.t('produto_variante').filter(ativoOk_).map(function (v) {
@@ -396,7 +396,7 @@ function viewCadastros_(db, ctx, sub) {
     return { sub: sub, produtos: vars.map(function (v) { return { id: v.id, nome: prods[v.produto_id].nome, tamanho: v.tamanho_ml, preco: precoVigente_(db, v.id, ts), ativo: v.ativo }; }), historico: hist.slice(0, 12).map(function (h) { return h.txt; }) };
   }
   if (sub === 'receitas') {
-    function fmtRec(r) { return { colheres: r.colheres_por_litro, gPorColher: r.g_por_colher, filtros: r.filtros_por_litro, acucar: r.acucar_g_por_litro, agua: r.agua_ml_por_litro, leite: r.leite_ml_por_litro || 0, gPorColherAcucar: r.g_por_colher_acucar || 10 }; }
+    function fmtRec(r) { return { colheres: r.colheres_por_litro, gPorColher: r.g_por_colher, filtros: r.filtros_por_litro, acucar: r.acucar_g_por_litro, agua: r.agua_ml_por_litro, leite: r.leite_ml_por_litro || 0, gPorColherAcucar: r.g_por_colher_acucar || 10, gPorColherCanela: r.g_por_colher_canela || 3 }; }
     var escopos = [{ id: '', nome: 'Padrão da casa', propria: true, propriaLeite: true, receita: fmtRec(receitaVigente_(db, ts, null, 'CAFE')), receitaLeite: fmtRec(receitaVigente_(db, ts, null, 'CAFE_LEITE')) }].concat(db.t('usuario').filter(ativoOk_).map(function (u) { var r = receitaVigente_(db, ts, u.id, 'CAFE'), rl = receitaVigente_(db, ts, u.id, 'CAFE_LEITE'); return { id: u.id, nome: u.nome, propria: r.usuario_id === u.id, propriaLeite: rl.usuario_id === u.id, receita: fmtRec(r), receitaLeite: fmtRec(rl) }; }));
     return { sub: sub, escopos: escopos,
       copos: db.t('material').filter(function (m) { return m.ativo && m.unidade === 'un' && (/copo/i.test(m.nome) || db.t('composicao_copo').some(function (c) { return c.copo_material_id === m.id; })); }).map(function (m) { return { id: m.id, nome: m.nome }; }),

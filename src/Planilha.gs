@@ -303,6 +303,7 @@ function preencherColunaNova_(sh, def, coluna, ss) {
   if ((def.nome === 'venda_item' || def.nome === 'consumo_proprio_item') && coluna === 'custo_copo_centavos') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return [0]; }));   // o copo dos registros antigos saiu no preparo
   if (def.nome === 'receita_cafe' && coluna === 'base') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return ['CAFE']; }));
   if (def.nome === 'receita_cafe' && coluna === 'g_por_colher_acucar') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return [10]; }));
+  if (def.nome === 'receita_cafe' && coluna === 'g_por_colher_canela') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return [3]; }));
   if (def.nome === 'receita_cafe' && coluna === 'leite_ml_por_litro') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return [0]; }));
   if (def.nome === 'preparo' && coluna === 'base') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return ['CAFE']; }));
   if (def.nome === 'preparo' && coluna === 'materiais_status') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return ['LANCADO']; }));

@@ -251,11 +251,11 @@ Desfazer cria uma linha em `estorno`, muda o status do registro para `ESTORNADO`
 
 **Receita por pessoa e por tipo de café.** Para mim, "café" é o produto: pó + água, ou pó + água + leite no caso do café com leite. Por isso cada pessoa tem duas receitas por litro, a do **café** e a do **café com leite** (por exemplo, 600 ml de água + 400 ml de leite), e ao registrar um preparo eu digo o que foi preparado. Quem prepara usa a própria receita do tipo escolhido, se tiver; senão, a da casa. O preparo guarda o tipo, o que a receita mandava (`qtd_padrao`) e o que foi usado (`qtd_real`).
 
-**Material sem controle de estoque.** A água, por exemplo, tem `controla_estoque = FALSO`: o consumo é registrado, mas ela não aparece em Estoque nem em Compra e nunca trava nada.
+**Material sem controle de estoque.** A água, por exemplo, tem `controla_estoque = FALSO`: o consumo é registrado, mas ela não aparece em Estoque nem em Compra e nunca trava nada. Ela é só **custo**: tem um preço de referência (galão de 20 L a R$ 8,50, que se ajusta em Cadastros › Materiais) e o custo da água de cada preparo fica gravado e entra no Resultado.
 
 **Sorteio em rodadas.** Sempre existe um sorteio `ABERTO`, e cada número vendido guarda o `sorteio_id` em que nasceu. O progresso conta **números** vendidos no sorteio aberto. "Novo sorteio" encerra o atual (os números ficam guardados nele) e abre outro do zero, sem reaproveitar numeração nem códigos de 4 dígitos.
 
-**Medidas em colher.** O café e o açúcar podem ser informados em colheres (a medida que eu realmente uso) ou em gramas, no preparo e na receita. O sistema sempre guarda gramas: a receita define quantos gramas tem cada colher de café e de açúcar.
+**Medidas em colher.** O café, o açúcar e a canela podem ser informados em colheres (a medida que eu realmente uso) ou em gramas, no preparo e na receita. O sistema sempre guarda gramas: a receita define quantos gramas tem cada colher de café, de açúcar e de canela.
 
 **Desconto manual.** Não é regra: eu informo o valor na hora (atalhos como "1 café grátis") e, se quiser, o motivo, uma promoção cadastrada que serve só de rótulo. `total_cafe_centavos` guarda o valor cobrado, `desconto_centavos` o abatimento e os itens guardam o preço de tabela, então nada se perde para os relatórios. O painel de vendas separa os copos **pagos**, **grátis** (o desconto cobre o copo inteiro, começando pelos mais baratos) e **com desconto** (cobertura parcial).
 
@@ -312,7 +312,7 @@ O simulador reproduz detalhes que costumam esconder bugs no Planilhas real: text
 
 ## Qualidade
 
-- **597 verificações automáticas** das regras: venda, preparo, compra, estoque, fechamento, estorno, sorteio, desconto, consumo, painéis, auditoria, DDL e migração de planilhas já instaladas.
+- **608 verificações automáticas** das regras: venda, preparo, compra, estoque, fechamento, estorno, sorteio, desconto, consumo, painéis, auditoria, DDL e migração de planilhas já instaladas.
 - **Painéis conferidos contra os registros:** os testes recalculam cada número de cada painel direto das linhas e comparam com a tela.
 - **Teste diferencial do cache:** depois de cada uma de mais de vinte operações, todas as telas lidas com cache são comparadas com as lidas direto da planilha e precisam ser idênticas. Cache sumindo, corrompido ou falhando também não pode mudar resultado.
 - **Orçamento de chamadas:** os testes falham se uma gravação passar de 8 chamadas à planilha ou se abrir uma tela já vista tocar na planilha.

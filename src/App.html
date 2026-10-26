@@ -268,8 +268,8 @@
   }
   /* o café em pó pode ser informado em colheres (medida da receita) ou em gramas; o sistema sempre guarda gramas */
   function medidaCafe(v, mid) {
-    var c = calcAtual(v), r = c.receita || {}, g = mid === v.chaves.cafe ? r.gPorColher : mid === v.chaves.acucar ? r.gPorColherAcucar : 0;
-    return { colher: (mid === v.chaves.cafe || mid === v.chaves.acucar) && S.cafeEm === 'colher' && g > 0, g: g || 0 };
+    var c = calcAtual(v), r = c.receita || {}, g = mid === v.chaves.cafe ? r.gPorColher : mid === v.chaves.acucar ? r.gPorColherAcucar : mid === v.chaves.canela ? r.gPorColherCanela : 0;
+    return { colher: (mid === v.chaves.cafe || mid === v.chaves.acucar || mid === v.chaves.canela) && S.cafeEm === 'colher' && g > 0, g: g || 0 };
   }
   function quemPrep() { return S.prep.completando ? S.prep.completando.quemId : S.prep.quem; }
   function realPrev(v, mid) { var calc = calcAtual(v); return (mid in S.prep.aj) ? S.prep.aj[mid] : (calc.c[mid] || 0); }
@@ -322,7 +322,7 @@
         muted('Receita' + ((comp ? comp.base : pr.base) === 'CAFE_LEITE' ? ' do café com leite' : '') + ' de ' + nomeQ + (rr.propria ? ' (própria)' : ' (padrão da casa)') + ': ' + fmtN(rr.colheres) + ' medidas de ' + fmtN(rr.gPorColher) + ' g por litro \u00B7 ' + (rr.filtros ? fmtN(rr.filtros) + ' filtro(s) por litro' : 'sem filtro') + (rr.acucar ? ' \u00B7 ' + fmtN(rr.acucar) + ' g de açúcar por litro' : '') + ' \u00B7 ' + fmtN(rr.agua) + ' ml de água' + (rr.leite ? ' + ' + fmtN(rr.leite) + ' ml de leite' : '') + ' por litro') +
         '<div class="rows">' + linhas + '</div>' +
         (livres.length ? lbl('Usou mais alguma coisa? (ex.: açúcar)') + '<div class="chips">' + livres.map(function (m) { return chip('+ ' + m.nome, false, 'prep-add', m.id); }).join('') + '</div>' : '') +
-        ((ids.indexOf(v.chaves.cafe) >= 0 && rr.gPorColher > 0) || (ids.indexOf(v.chaves.acucar) >= 0 && rr.gPorColherAcucar > 0) ? lbl('Medir café e açúcar em') + '<div class="chips">' + chip('Colheres', S.cafeEm === 'colher', 'cafe-em', 'colher') + chip('Gramas', S.cafeEm !== 'colher', 'cafe-em', 'g') + '</div>' : '') +
+        ((ids.indexOf(v.chaves.cafe) >= 0 && rr.gPorColher > 0) || (ids.indexOf(v.chaves.acucar) >= 0 && rr.gPorColherAcucar > 0) || (ids.indexOf(v.chaves.canela) >= 0 && rr.gPorColherCanela > 0) ? lbl('Medir café, açúcar e canela em') + '<div class="chips">' + chip('Colheres', S.cafeEm === 'colher', 'cafe-em', 'colher') + chip('Gramas', S.cafeEm !== 'colher', 'cafe-em', 'g') + '</div>' : '') +
         muted('Pode digitar qualquer quantidade, inclusive 0. Vale só para este preparo.') +
         '<div class="row2">' + (nAj ? ghost('Voltar ao que a receita manda', 'prep-aj-limpar') : '') + ghost('Editar a receita de ' + nomeQ, 'prep-receita') + '</div>');
     }
@@ -506,7 +506,7 @@
         muted(comLeite ? 'O leite do café com leite entra aqui, no preparo (por litro), e não no copo.' : 'Café preparado só com pó e água.') + ' ' +
         muted(!e.id ? 'A receita da casa vale para quem não tem receita própria.' : propria ? e.nome + ' tem receita própria. Os preparos dele(a) usam estes valores.' : 'Hoje ' + e.nome + ' usa a receita da casa. Ao salvar, vira a receita própria dele(a); a da casa não muda.') +
         campo(g, 'colheres_por_litro', 'Medidas de café por litro (colher ou scoop)', r.colheres, '') + campo(g, 'g_por_colher', 'Gramas de cada medida', r.gPorColher, 'g') +
-        campo(g, 'filtros_por_litro', 'Filtros de papel por litro (0 se não usa)', r.filtros, '') + campo(g, 'acucar_colheres', 'Colheres de açúcar por litro (0 se não usa)', r3(r.acucar / (r.gPorColherAcucar || 10)), '') + campo(g, 'g_por_colher_acucar', 'Gramas de cada colher de açúcar', r.gPorColherAcucar || 10, 'g') + campo(g, 'agua_ml_por_litro', 'Água por litro (0 se não conta)', r.agua, 'ml') + campo(g, 'leite_ml_por_litro', 'Leite por litro (0 se não leva)', r.leite, 'ml') +
+        campo(g, 'filtros_por_litro', 'Filtros de papel por litro (0 se não usa)', r.filtros, '') + campo(g, 'acucar_colheres', 'Colheres de açúcar por litro (0 se não usa)', r3(r.acucar / (r.gPorColherAcucar || 10)), '') + campo(g, 'g_por_colher_acucar', 'Gramas de cada colher de açúcar', r.gPorColherAcucar || 10, 'g') + campo(g, 'g_por_colher_canela', 'Gramas de cada colher de canela', r.gPorColherCanela || 3, 'g') + campo(g, 'agua_ml_por_litro', 'Água por litro (0 se não conta)', r.agua, 'ml') + campo(g, 'leite_ml_por_litro', 'Leite por litro (0 se não leva)', r.leite, 'ml') +
         muted('1 L de ' + (comLeite ? 'café com leite' : 'café') + ' leva ' + (isNaN(gramas) ? '?' : fmtN(gramas)) + ' g de pó' + (filtros === 0 ? ' (sem filtro de papel)' : '') + (acuc > 0 ? ' e ' + fmtN(acuc) + ' g de açúcar' : '') + (rdNum(g, 'agua_ml_por_litro', r.agua) > 0 || rdNum(g, 'leite_ml_por_litro', r.leite) > 0 ? ', ' + fmtN(rdNum(g, 'agua_ml_por_litro', r.agua) || 0) + ' ml de água' + (rdNum(g, 'leite_ml_por_litro', r.leite) > 0 ? ' e ' + fmtN(rdNum(g, 'leite_ml_por_litro', r.leite)) + ' ml de leite' : '') : '') + '. Meça a gramatura da sua medida no primeiro preparo.') +
         barraSalvar(g, 'rec-salvar', null) + (e.id && propria ? ghost('Voltar à receita padrão da casa', 'rec-padrao') : ''), 'full') +
         v.composicao.map(function (c) {
@@ -838,13 +838,13 @@
     'var-ativo': function (v) { var p = par(v); agir('variante.ativo', { id: p[0], ativo: p[1] === '1' }); },
     'rec-salvar': function () {
       var escId = S.rec === 'casa' || !S.rec ? '' : S.rec, e = V().escopos.filter(function (x) { return x.id === escId; })[0] || V().escopos[0], comLeite = S.recBase === 'CAFE_LEITE', r = comLeite ? e.receitaLeite : e.receita, g = 'rec|' + (e.id || 'casa') + '|' + (comLeite ? 'leite' : 'cafe');
-      var gAc0 = r.gPorColherAcucar || 10, campos = ['colheres_por_litro', 'g_por_colher', 'filtros_por_litro', 'agua_ml_por_litro', 'leite_ml_por_litro', 'g_por_colher_acucar', 'acucar_colheres'];
-      var atual = { colheres_por_litro: r.colheres, g_por_colher: r.gPorColher, filtros_por_litro: r.filtros, agua_ml_por_litro: r.agua, leite_ml_por_litro: r.leite || 0, g_por_colher_acucar: gAc0, acucar_colheres: r3(r.acucar / gAc0) };
+      var gAc0 = r.gPorColherAcucar || 10, campos = ['colheres_por_litro', 'g_por_colher', 'filtros_por_litro', 'agua_ml_por_litro', 'leite_ml_por_litro', 'g_por_colher_acucar', 'g_por_colher_canela', 'acucar_colheres'];
+      var atual = { colheres_por_litro: r.colheres, g_por_colher: r.gPorColher, filtros_por_litro: r.filtros, agua_ml_por_litro: r.agua, leite_ml_por_litro: r.leite || 0, g_por_colher_acucar: gAc0, g_por_colher_canela: r.gPorColherCanela || 3, acucar_colheres: r3(r.acucar / gAc0) };
       var o = { usuario_id: e.id || null, base: comLeite ? 'CAFE_LEITE' : 'CAFE' }, v = {};
       campos.forEach(function (k) { v[k] = rdNum(g, k, atual[k]); });
       var bad = campos.some(function (k) { return isNaN(v[k]) || v[k] < 0; });
-      if (bad || v.colheres_por_litro <= 0 || v.g_por_colher <= 0 || v.g_por_colher_acucar <= 0) { aviso('Confira os números: use só dígitos (a vírgula vale). Café e gramas de cada colher precisam ser maiores que zero; filtro, açúcar, água e leite podem ser 0.', true); render(); return; }
-      ['colheres_por_litro', 'g_por_colher', 'filtros_por_litro', 'agua_ml_por_litro', 'leite_ml_por_litro', 'g_por_colher_acucar'].forEach(function (k) { o[k] = v[k]; });
+      if (bad || v.colheres_por_litro <= 0 || v.g_por_colher <= 0 || v.g_por_colher_acucar <= 0 || v.g_por_colher_canela <= 0) { aviso('Confira os números: use só dígitos (a vírgula vale). Café e gramas de cada colher precisam ser maiores que zero; filtro, açúcar, água e leite podem ser 0.', true); render(); return; }
+      ['colheres_por_litro', 'g_por_colher', 'filtros_por_litro', 'agua_ml_por_litro', 'leite_ml_por_litro', 'g_por_colher_acucar', 'g_por_colher_canela'].forEach(function (k) { o[k] = v[k]; });
       o.acucar_g_por_litro = r3(v.acucar_colheres * v.g_por_colher_acucar);   // o sistema guarda gramas; a colher é só a forma de informar
       agir('receita.salvar', o, { depois: function () { rdLimpar(g); } });
     },
