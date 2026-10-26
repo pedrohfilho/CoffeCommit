@@ -114,7 +114,7 @@ function sementes_(agora) {
     ['mat-canela', 'CANELA', 'Canela em pó', 'g', 10, 50, 800, 5],
     ['mat-acucar', 'ACUCAR', 'Açúcar', 'g', 500, 1000, 450, 50],
     ['mat-copo50', 'COPO50', 'Copo 50 ml', 'un', 20, 50, 1000, 1],
-    ['mat-copo200', 'COPO200', 'Copo 200 ml (serve 100 ml)', 'un', 20, 50, 1500, 1]
+    ['mat-copo200', 'COPO200', 'Copo 200 ml', 'un', 20, 50, 1500, 1]
   ].map(function (m) { return c({ id: m[0], codigo: m[1], nome: m[2], unidade: m[3], estoque_minimo_qtd: m[4], pacote_qtd: m[5], preco_padrao_centavos: m[6], passo_qtd: m[7], ativo: true, controla_estoque: m[0] !== 'mat-agua' }); });
   S.produto = [
     c({ id: 'prd-normal', nome: 'Café normal', categoria: 'CAFE', ativo: true }),
@@ -122,9 +122,9 @@ function sementes_(agora) {
     c({ id: 'prd-leite', nome: 'Café com leite', categoria: 'CAFE', ativo: true })
   ];
   var VARS = [
-    ['var-n50', 'prd-normal', 50, 100, 0, 0, 'mat-copo50'], ['var-n100', 'prd-normal', 100, 150, 0, 0, 'mat-copo200'],
-    ['var-c50', 'prd-canela', 50, 150, 0, 0.5, 'mat-copo50'], ['var-c100', 'prd-canela', 100, 200, 0, 1, 'mat-copo200'],
-    ['var-l50', 'prd-leite', 50, 200, 0, 0, 'mat-copo50'], ['var-l100', 'prd-leite', 100, 250, 0, 0, 'mat-copo200']
+    ['var-n50', 'prd-normal', 50, 100, 0, 0, 'mat-copo50'], ['var-n100', 'prd-normal', 200, 200, 0, 0, 'mat-copo200'],   // os ids ficam (n100 = o copo grande); o tamanho real é 200 ml
+    ['var-c50', 'prd-canela', 50, 150, 0, 0.5, 'mat-copo50'], ['var-c100', 'prd-canela', 200, 200, 0, 1, 'mat-copo200'],
+    ['var-l50', 'prd-leite', 50, 200, 0, 0, 'mat-copo50'], ['var-l100', 'prd-leite', 200, 250, 0, 0, 'mat-copo200']
   ];
   S.produto_variante = VARS.map(function (v) { return c({ id: v[0], produto_id: v[1], tamanho_ml: v[2], ativo: true }); });
   S.preco_venda = VARS.map(function (v) { return { id: 'pv-' + v[0].slice(4), variante_id: v[0], preco_centavos: v[3], vigente_de: v0, vigente_ate: null, criado_em: agora, criado_por: 'usr-sistema' }; });
@@ -141,7 +141,7 @@ function sementes_(agora) {
     ['material.cafe', 'mat-cafe'], ['material.filtro', 'mat-filtro'], ['material.agua', 'mat-agua'], ['material.leite', 'mat-leite'], ['material.canela', 'mat-canela'], ['material.acucar', 'mat-acucar']
   ];
   S.config = cfg.map(function (k, i) { return { id: 'cfg-' + (i + 1), chave: k[0], valor: k[1], vigente_de: v0, vigente_ate: null, criado_em: agora, criado_por: 'usr-sistema' }; });
-  S.promocao = [c({ id: 'promo-1', nome: 'Combo 2 cafés 100 ml', desconto_pct: 10, ativo: false })];
+  S.promocao = [c({ id: 'promo-1', nome: 'Combo 2 cafés', desconto_pct: 10, ativo: false })];
   S.sorteio = [c({ id: 'sort-1', rodada: 1, status: 'ABERTO', meta_numeros: 40, qtd_numeros: 0, aberto_em: agora, encerrado_em: null, encerrado_por: null })];
   S.sequencia = [{ tabela: 'sorteio', ultimo: 1 }];
   return S;

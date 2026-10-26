@@ -8,7 +8,7 @@
 
 ## Por que este projeto existe
 
-Eu e o Digo vendemos café em copos de 50 ml e 100 ml (normal, com canela e com leite), com a meta de operar até o Natal de 2026. A operação é pequena de propósito: dá para errar, medir e corrigir com custo baixo, e cada decisão de código que tomo esbarra num problema de verdade:
+Eu e o Digo vendemos café em copos de 50 ml (R$ 1,00) e 200 ml (R$ 2,00) (normal, com canela e com leite), com a meta de operar até o Natal de 2026. A operação é pequena de propósito: dá para errar, medir e corrigir com custo baixo, e cada decisão de código que tomo esbarra num problema de verdade:
 
 - o estoque fica dividido entre as nossas duas casas, e **cada um prepara com o que tem**;
 - o café é feito em litros na cafeteira, mas **vendido em mililitros**;
@@ -261,7 +261,7 @@ Desfazer cria uma linha em `estorno`, muda o status do registro para `ESTORNADO`
 
 **Consumo próprio.** O café que eu e o Digo tomamos é registrado na hora, na própria Venda. Sai do café pronto, mas **não é venda**: não conta em faturamento, ticket médio nem sorteio. Quem tomou diz se **usou copo**: se usou, o copo sai do estoque como na venda.
 
-**O copo só tem café.** O leite do café com leite entra no **preparo**, nunca no copo: um copo de 100 ml é 100 ml do produto, e o consumo de leite sai da receita do preparo. O tamanho do copo é editável (Cadastros › Produtos e preços): mudar vale daqui para frente, e cada venda guarda o tamanho da época. O café pronto e o estoque usam sempre esse volume.
+**O copo só tem café.** O leite do café com leite entra no **preparo**, nunca no copo: um copo de 200 ml é 200 ml do produto, e o consumo de leite sai da receita do preparo. O tamanho do copo é editável (Cadastros › Produtos e preços): mudar vale daqui para frente, e cada venda guarda o tamanho da época. O café pronto e o estoque usam sempre esse volume.
 
 **Quem vendeu.** A venda guarda duas pessoas: `usuario_id` (quem registrou) e `vendedor_id` (quem vendeu e ficou com o dinheiro). Na tela de Venda, "Vendido por" escolhe o vendedor (o cartão fica laranja quando não é você), para quando um registra a venda do outro. O copo sai do estoque de quem vendeu. Os painéis de Vendas e de Destino do café e o Dia a dia têm filtro por pessoa, e o painel de Vendas mostra o faturamento e o dinheiro vivo de cada um.
 
@@ -314,7 +314,7 @@ O simulador reproduz detalhes que costumam esconder bugs no Planilhas real: text
 
 ## Qualidade
 
-- **645 verificações automáticas** das regras: venda, preparo, compra, estoque, fechamento, estorno, sorteio, desconto, consumo, painéis, auditoria, DDL e migração de planilhas já instaladas.
+- **667 verificações automáticas** das regras: venda, preparo, compra, estoque, fechamento, estorno, sorteio, desconto, consumo, painéis, auditoria, DDL e migração de planilhas já instaladas.
 - **Painéis conferidos contra os registros:** os testes recalculam cada número de cada painel direto das linhas e comparam com a tela.
 - **Teste diferencial do cache:** depois de cada uma de mais de vinte operações, todas as telas lidas com cache são comparadas com as lidas direto da planilha e precisam ser idênticas. Cache sumindo, corrompido ou falhando também não pode mudar resultado.
 - **Orçamento de chamadas:** os testes falham se uma gravação passar de 8 chamadas à planilha ou se abrir uma tela já vista tocar na planilha.

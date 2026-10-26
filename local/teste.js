@@ -12,9 +12,24 @@ function ok(cond, nome, extra) {
 }
 function grupo(n) { console.log('\n[' + n + ']'); }
 
+/* As regras são testadas num mundo fixo de copos de 50 e 100 ml (café normal 100 ml a R$ 1,50), para os números não dependerem das sementes.
+   As sementes reais (50 ml a R$ 1,00 e 200 ml a R$ 2,00) são conferidas à parte, com iniciar({ sementesReais: true }). */
+function usarMundoDeTeste(ctx) {
+  const orig = ctx.sementes_;
+  ctx.sementes_ = function (agora) {
+    const S = orig(agora);
+    S.produto_variante.forEach((v) => { if (['var-n100', 'var-c100', 'var-l100'].includes(v.id)) v.tamanho_ml = 100; });
+    S.preco_venda.forEach((p) => { if (p.variante_id === 'var-n100') p.preco_centavos = 150; });
+    S.material.forEach((m) => { if (m.id === 'mat-copo200') m.nome = 'Copo 200 ml (serve 100 ml)'; });
+    S.promocao.forEach((p) => { if (p.id === 'promo-1') p.nome = 'Combo 2 cafés 100 ml'; });
+    return S;
+  };
+}
+
 function iniciar(opc) {
   opc = opc || {};
   const { ctx, amb } = carregar();
+  if (!opc.sementesReais) usarMundoDeTeste(ctx);
   const ss = amb.planilha;
   let minuto = 0;
   const base = Date.UTC(2026, 9, 5, 12, 0, 0);
@@ -386,13 +401,13 @@ grupo('estoque: ajuste, perda de material, transferência');
   ok(mv('PERDA', 'mat-leite', 'usr-pedro', 100).ok && T.ctx.saldosEstoque_(T.db())['usr-pedro']['mat-leite'] === 3900, 'perda de material (4.000 ml de leite comprados − 100)');
   ok(/negativo/.test(mv('PERDA', 'mat-leite', 'usr-pedro', 99999).erro), 'perda maior que o estoque');
   const t = mv('TRANSFERENCIA', 'mat-canela', 'usr-pedro', 10), s = T.ctx.saldosEstoque_(T.db());
-  ok(t.ok && s['usr-pedro']['mat-canela'] === 36 && s['usr-digo']['mat-canela'] === 10, 'transferência move de um para o outro', [s['usr-pedro']['mat-canela'], s['usr-digo']['mat-canela']]);
+  ok(t.ok && s['usr-pedro']['mat-canela'] === 37 && s['usr-digo']['mat-canela'] === 10, 'transferência move de um para o outro', [s['usr-pedro']['mat-canela'], s['usr-digo']['mat-canela']]);
   ok(/negativo/.test(mv('TRANSFERENCIA', 'mat-canela', 'usr-digo', 11).erro), 'transferência sem saldo');
   ok(/inválido/.test(mv('XPTO', 'mat-cafe', 'usr-pedro', 1).erro), 'tipo inválido');
   const ledger = ver(T, T.pedro, 'estoque', 'movs').movs;
   ok(ledger.length > 5 && ledger[0].tipo === 'TRANSF_ENTRADA', 'livro de movimentos mostra as mais recentes primeiro', ledger.slice(0, 2));
   const id = T.db().t('ajuste_estoque').slice(-1)[0].id;
-  ok(T.ch(T.pedro, 'estornar', { tabela: 'ajuste_estoque', id: id }).ok && T.ctx.saldosEstoque_(T.db())['usr-pedro']['mat-canela'] === 46, 'desfazer transferência devolve');
+  ok(T.ch(T.pedro, 'estornar', { tabela: 'ajuste_estoque', id: id }).ok && T.ctx.saldosEstoque_(T.db())['usr-pedro']['mat-canela'] === 47, 'desfazer transferência devolve');
   const sal = ver(T, T.pedro, 'estoque', 'saldos');
   const cafe = sal.linhas.find((l) => l.id === 'mat-cafe');
   ok(cafe.por['usr-pedro'] === 950 && cafe.por['usr-digo'] === 500 && cafe.total === 1450, 'tela de saldos por pessoa', cafe);
@@ -1474,6 +1489,26 @@ grupo('dia a dia: dias com e sem serviço');
   const vazio = iniciar(), vv = vazio.ch(vazio.pedro, 'ver', { tela: 'paineis', sub: 'dias' });
   ok(vv.ok && vv.total.inicio === null && vv.total.comServico === 0 && vv.total.semServico === 0 && vv.tiles[1].val === '0', 'sem nenhum registro: nenhum dia sem serviço');
   ok(T.ch(T.pedro, 'sistema.auditar').limpo, 'auditoria limpa (a tela só lê)');
+}
+
+grupo('sementes reais: copo de 50 ml a R$ 1,00 e de 200 ml a R$ 2,00');
+{
+  const T = iniciar({ exemplos: true, sementesReais: true });
+  const lim = (s) => String(s).replace(/\u00A0/g, ' ');
+  const db = T.db(), vars = db.t('produto_variante'), preco = (id) => db.t('preco_venda').find((p) => p.variante_id === id).preco_centavos, tam = (id) => vars.find((v) => v.id === id).tamanho_ml;
+  ok(tam('var-n50') === 50 && preco('var-n50') === 100 && tam('var-n100') === 200 && preco('var-n100') === 200, 'café normal: 50 ml por R$ 1,00 e 200 ml por R$ 2,00', [tam('var-n50'), preco('var-n50'), tam('var-n100'), preco('var-n100')]);
+  ok(['var-c100', 'var-l100'].every((id) => tam(id) === 200) && ['var-c50', 'var-l50'].every((id) => tam(id) === 50), 'com canela e com leite também em 50 ml e 200 ml');
+  ok(db.achar('material', 'mat-copo200').nome === 'Copo 200 ml', 'o copo grande se chama Copo 200 ml');
+  const a = T.ch(T.pedro, 'sistema.auditar'), v = ver(T, T.pedro, 'venda');
+  ok(a.limpo && v.saldoMl === 700, 'os exemplos carregam com os tamanhos reais: 7 copos, 800 ml vendidos, 700 ml de café pronto', [a.erros, v.saldoMl]);
+  const id = T.uid(), r = venda(T, T.pedro, { 'var-n50': 1, 'var-n100': 1 }, 'fp-pix', null, id), vd = T.db().achar('venda', id);
+  ok(r.ok && vd.total_cafe_centavos === 300 && vd.ml_cafe === 250 && vd.copos === 2, 'um de 50 ml e um de 200 ml: R$ 3,00 e 250 ml de café', vd);
+  const dest = T.ch(T.pedro, 'ver', { tela: 'paineis', sub: 'destino', periodo: 'tudo' });
+  ok(lim(dest.tiles.find((x) => x.lbl === 'Vendido (pago)').val) === '9 copos · 1.050 ml', 'Destino do café com os tamanhos reais (800 + 250 ml)', dest.tiles[0]);
+  ok(T.ch(T.pedro, 'preparo.registrar', { id: T.uid(), litros: 1, quem: 'usr-pedro', plano: { 'var-n100': 5 } }).ok && /passa do volume/.test(T.ch(T.pedro, 'preparo.registrar', { id: T.uid(), litros: 1, quem: 'usr-pedro', plano: { 'var-n100': 6 } }).erro), 'o plano de copos usa os 200 ml: 5 copos cabem em 1 L, 6 não');
+  const telas = [['venda'], ['preparo'], ['compra'], ['fechamento'], ['estoque', 'saldos'], ['paineis', 'geral'], ['paineis', 'dias'], ['paineis', 'vendas'], ['paineis', 'destino'], ['paineis', 'producao'], ['paineis', 'fin'], ['cadastros', 'produtos'], ['cadastros', 'receitas'], ['historico']];
+  telas.forEach((t) => { const rr = ver(T, T.pedro, t[0], t[1]); ok(rr.ok, 'sementes reais: tela ' + t.join('/'), rr.erro); });
+  ok(T.ch(T.pedro, 'sistema.auditar').limpo, 'auditoria limpa depois de vender e preparar');
 }
 
 grupo('todas as telas respondem');

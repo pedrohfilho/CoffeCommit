@@ -26,7 +26,7 @@ function carregarExemplos_(ss, agoraBase) {
   compra(D, '2026-09-28', '21:12', 'mat-leite', 2, 1100, 'for-b');
   compra(D, '2026-09-28', '21:14', 'mat-filtro', 1, 900, 'for-b');
 
-  cmdPreparo_(db, ctx(P, hoje, '10:40'), { id: Utilities.getUuid(), litros: 1.5, quem: P, plano: { 'var-n100': 4, 'var-n50': 6, 'var-l100': 2, 'var-l50': 3, 'var-c100': 2, 'var-c50': 4 } });
+  cmdPreparo_(db, ctx(P, hoje, '10:40'), { id: Utilities.getUuid(), litros: 1.5, quem: P, plano: { 'var-n100': 2, 'var-n50': 6, 'var-l100': 1, 'var-l50': 3, 'var-c100': 1, 'var-c50': 4 } });   // 1.450 ml dos 1.500 ml preparados
 
   function venda(uid, hora, itens, forma, sorteio) { cmdVenda_(db, ctx(uid, hoje, hora), { id: Utilities.getUuid(), itens: itens, forma_pagamento_id: forma, sorteio: sorteio || null }); }
   venda(P, '11:05', { 'var-n50': 1 }, 'fp-dinheiro');
