@@ -688,12 +688,12 @@ function cmdMaterialSalvar_(db, ctx, p) {
   return { msg: 'Material adicionado. Ajuste mínimo, pacote e preço na lista.' };
 }
 /* receita: vale para a casa (sem usuario_id) ou para uma pessoa (usuario_id). Mudar cria uma versão nova. */
-var CAMPOS_RECEITA_ = { colheres_por_litro: 0.1, g_por_colher: 0.1, filtros_por_litro: 0, acucar_g_por_litro: 0, agua_ml_por_litro: 0, leite_ml_por_litro: 0 };
+var CAMPOS_RECEITA_ = { colheres_por_litro: 0.1, g_por_colher: 0.1, filtros_por_litro: 0, acucar_g_por_litro: 0, agua_ml_por_litro: 0, leite_ml_por_litro: 0, g_por_colher_acucar: 0.1 };
 function cmdReceita_(db, ctx, p) {
   var ts = ctx.agora.dataHora, dono = p.usuario_id ? usuarioAtivo_(db, p.usuario_id).id : null, tipo = baseValida_(p.base);
   var base = receitaVigente_(db, ts, dono, tipo), nova = {};
   Object.keys(CAMPOS_RECEITA_).forEach(function (k) {
-    nova[k] = base[k] || 0;
+    nova[k] = base[k] || (k === 'g_por_colher_acucar' ? 10 : 0);
     if (p[k] !== undefined) { var n = Number(p[k]); if (!(n >= CAMPOS_RECEITA_[k] && n <= 100000)) falha_('Valor inválido na receita (' + k.replace(/_/g, ' ') + ').'); nova[k] = r3_(n); }
   });
   if ((base.usuario_id || null) === dono) fecharVigencia_(db, ctx, 'receita_cafe', base);

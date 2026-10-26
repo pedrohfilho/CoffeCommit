@@ -1177,6 +1177,7 @@ grupo('sorteio com número em centavos e copo com tamanho editável');
   const nm = T.ch(T.pedro, 'material.salvar', { novo_id: T.uid(), nome: 'Copo 300 ml', unidade: 'un' }), copo3 = T.db().t('material').find((m) => m.nome === 'Copo 300 ml');
   ok(T.ch(T.pedro, 'composicao.salvar', { variante_id: 'var-n100', copo_material_id: copo3.id }).ok && ver(T, T.pedro, 'preparo').copoPorVariante['var-n100'] === copo3.id, 'dá para trocar o copo usado pelo produto (e o preparo passa a baixar esse copo)');
   ok(/Escolha um copo/.test(T.ch(T.pedro, 'composicao.salvar', { variante_id: 'var-n100', copo_material_id: 'mat-cafe' }).erro), 'só material em unidades vale como copo');
+  ok(ver(T, T.pedro, 'cadastros', 'receitas').copos.map((m) => m.nome).join('|') === 'Copo 50 ml|Copo 200 ml (serve 100 ml)|Copo 300 ml' && !ver(T, T.pedro, 'cadastros', 'receitas').copos.some((m) => /filtro/i.test(m.nome)), 'a lista de copos tem só copos (o filtro de papel não aparece)', ver(T, T.pedro, 'cadastros', 'receitas').copos);
   // renomear o copo: a cadastro de materiais já aceita o nome
   ok(T.ch(T.pedro, 'material.salvar', { id: 'mat-copo200', nome: 'Copo 200 ml' }).ok && T.db().achar('material', 'mat-copo200').nome === 'Copo 200 ml', 'o copo deixa de se chamar "serve 100 ml"');
   // completar um preparo antigo (plano feito com 100 ml) depois de o tamanho mudar não dá erro
@@ -1233,6 +1234,45 @@ grupo('café com leite: o leite entra no preparo (receita), nunca no copo');
   ok(rs.length === 2 && rs.find((r) => r.id === 'rec-1').base === 'CAFE' && rs.find((r) => r.id === 'rec-1').leite_ml_por_litro === 0 && rs.some((r) => r.base === 'CAFE_LEITE' && !r.usuario_id && r.agua_ml_por_litro === 600 && r.leite_ml_por_litro === 400), 'planilha antiga: a receita do café vira tipo CAFE e nasce a receita da casa do café com leite', rs);
   ok(dbN.t('preparo').every((p) => p.base === 'CAFE'), 'os preparos antigos viram café');
   ok(T3.ch(T3.pedro, 'preparo.registrar', { id: T3.uid(), litros: 1, quem: 'usr-pedro', base: 'CAFE_LEITE' }).ok && T3.ch(T3.pedro, 'sistema.auditar').limpo, 'e o café com leite já funciona nela');
+}
+
+grupo('copos pagos, grátis e com desconto no painel de vendas');
+{
+  const T = iniciar({ exemplos: true });
+  const tl = (l) => ver(T, T.pedro, 'paineis', 'vendas', 'tudo').tiles.find((x) => x.lbl === l).val.replace(/\u00A0/g, ' ');
+  ok(tl('Copos') === '7' && tl('Copos pagos') === '7' && tl('Copos grátis') === '0' && tl('Copos com desconto') === '0', 'sem desconto, todos os copos são pagos (7 de 7)', [tl('Copos'), tl('Copos pagos'), tl('Copos grátis'), tl('Copos com desconto')]);
+  const vd = (itens, desc) => T.ch(T.pedro, 'venda.registrar', { id: T.uid(), itens: itens, forma_pagamento_id: 'fp-pix', desconto_centavos: desc });
+  const a = vd({ 'var-n50': 1, 'var-n100': 1 }, 100);       // R$ 1,00 de desconto = o café mais barato sai de graça
+  const b = vd({ 'var-c50': 2 }, 200);                      // R$ 2,00 em dois cafés de R$ 1,50: um de graça e o outro com R$ 0,50 de desconto
+  ok(a.ok && b.ok && tl('Copos') === '11' && tl('Copos grátis') === '2' && tl('Copos com desconto') === '1' && tl('Copos pagos') === '8', '1º café grátis e desconto parcial: 11 copos = 8 pagos + 2 grátis + 1 com desconto', [tl('Copos'), tl('Copos pagos'), tl('Copos grátis'), tl('Copos com desconto')]);
+  ok(tl('Descontos dados') === T.ctx.fmtR_(300).replace(/\u00A0/g, ' ') + ' · 2 vendas', 'descontos dados: R$ 3,00 em 2 vendas', tl('Descontos dados'));
+  T.ch(T.pedro, 'consumo.registrar', { id: T.uid(), itens: { 'var-n50': 2 } });
+  ok(tl('Copos') === '11' && tl('Copos grátis') === '2', 'consumo nosso não conta como copo grátis nem como venda');
+  const idc = T.db().t('venda').slice(-1)[0].id;
+  T.ch(T.pedro, 'estornar', { tabela: 'venda', id: idc });
+  ok(tl('Copos') === '9' && tl('Copos grátis') === '1' && tl('Copos com desconto') === '0' && tl('Copos pagos') === '8', 'desfazer a venda com desconto tira os copos dela da conta', [tl('Copos'), tl('Copos pagos'), tl('Copos grátis'), tl('Copos com desconto')]);
+  ok(T.ch(T.pedro, 'sistema.auditar').limpo, 'auditoria limpa');
+}
+
+grupo('açúcar em colher: gramas de cada colher na receita');
+{
+  const T = iniciar({ exemplos: true });
+  const rc = T.db().t('receita_cafe');
+  ok(rc.every((r) => r.g_por_colher_acucar === 10), 'as receitas da casa vêm com 10 g por colher de açúcar (para ajustar)');
+  const v0 = ver(T, T.pedro, 'preparo');
+  ok(v0.receitas.CAFE['usr-pedro'].gPorColherAcucar === 10 && v0.receitas.CAFE_LEITE['usr-digo'].gPorColherAcucar === 10 && ver(T, T.pedro, 'cadastros', 'receitas').escopos[1].receita.gPorColherAcucar === 10, 'as telas trazem os gramas da colher de açúcar');
+  const e = T.ch(T.pedro, 'receita.salvar', { usuario_id: 'usr-pedro', acucar_g_por_litro: 30, g_por_colher_acucar: 15 });
+  const r = T.db().t('receita_cafe').find((x) => x.usuario_id === 'usr-pedro' && !x.vigente_ate);
+  ok(e.ok && r.acucar_g_por_litro === 30 && r.g_por_colher_acucar === 15, 'a receita guarda 30 g de açúcar por litro e 15 g por colher (2 colheres)', r);
+  ok(/inválido/.test(T.ch(T.pedro, 'receita.salvar', { usuario_id: 'usr-pedro', g_por_colher_acucar: 0 }).erro), 'colher de açúcar de 0 g é recusada');
+  ok(T.ch(T.pedro, 'receita.salvar', { usuario_id: 'usr-digo', base: 'CAFE_LEITE', agua_ml_por_litro: 500 }).ok && T.db().t('receita_cafe').find((x) => x.usuario_id === 'usr-digo' && x.base === 'CAFE_LEITE' && !x.vigente_ate).g_por_colher_acucar === 10, 'receita nova de outro tipo herda a colher de açúcar da casa (10 g)');
+  // planilha antiga ganha a coluna com 10 g
+  const T3 = iniciar({ exemplos: true }), shR = T3.ss.getSheetByName('receita_cafe'), nR = T3.ctx.esquemaTabela_('receita_cafe').colunas.length;
+  shR.getRange(1, nR).setValue(''); shR.getRange(2, nR, 5, 1).clearContent();
+  T3.ctx.instalarPlanilha_(T3.ss, new Date().toISOString());
+  const rs = new T3.ctx.Banco(T3.ss, { semCache: true }).t('receita_cafe');
+  ok(rs.length === 2 && rs.every((x) => x.g_por_colher_acucar === 10), 'planilha antiga: as receitas existentes ganham 10 g por colher de açúcar', rs.map((x) => x.g_por_colher_acucar));
+  ok(T3.ch(T3.pedro, 'sistema.auditar').limpo && T.ch(T.pedro, 'sistema.auditar').limpo, 'auditoria limpa');
 }
 
 grupo('todas as telas respondem');

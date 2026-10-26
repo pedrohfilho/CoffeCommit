@@ -173,7 +173,7 @@ Cache errado seria perigoso num sistema de estoque, então a consistência não 
 
 ### Identidade e acesso
 
-Não há senha. Na primeira abertura, cada aparelho pergunta *"Quem é você?"* (eu ou o Digo) e lembra. O servidor só confere se a pessoa existe e está ativa. O web app roda "como o dono", e o **link do app funciona como a chave**: quem o tem, usa o app. A planilha em si fica só comigo (o dono), com as abas protegidas.
+Não há senha. Na primeira abertura, cada aparelho pergunta *"Quem é você?"* (eu ou o Digo) e lembra. O Safari do iPhone apaga com frequência o armazenamento de páginas que rodam dentro do Google, então eu guardo a pessoa **também no endereço** (`?u=`): o atalho da tela inicial e o link salvo já abrem como eu, mesmo sem nenhum armazenamento. O servidor só confere se a pessoa existe e está ativa. O web app roda "como o dono", e o **link do app funciona como a chave**: quem o tem, usa o app. A planilha em si fica só comigo (o dono), com as abas protegidas.
 
 ---
 
@@ -255,7 +255,9 @@ Desfazer cria uma linha em `estorno`, muda o status do registro para `ESTORNADO`
 
 **Sorteio em rodadas.** Sempre existe um sorteio `ABERTO`, e cada número vendido guarda o `sorteio_id` em que nasceu. O progresso conta **números** vendidos no sorteio aberto. "Novo sorteio" encerra o atual (os números ficam guardados nele) e abre outro do zero, sem reaproveitar numeração nem códigos de 4 dígitos.
 
-**Desconto manual.** Não é regra: eu informo o valor na hora (atalhos como "1 café grátis") e, se quiser, o motivo, uma promoção cadastrada que serve só de rótulo. `total_cafe_centavos` guarda o valor cobrado, `desconto_centavos` o abatimento e os itens guardam o preço de tabela, então nada se perde para os relatórios.
+**Medidas em colher.** O café e o açúcar podem ser informados em colheres (a medida que eu realmente uso) ou em gramas, no preparo e na receita. O sistema sempre guarda gramas: a receita define quantos gramas tem cada colher de café e de açúcar.
+
+**Desconto manual.** Não é regra: eu informo o valor na hora (atalhos como "1 café grátis") e, se quiser, o motivo, uma promoção cadastrada que serve só de rótulo. `total_cafe_centavos` guarda o valor cobrado, `desconto_centavos` o abatimento e os itens guardam o preço de tabela, então nada se perde para os relatórios. O painel de vendas separa os copos **pagos**, **grátis** (o desconto cobre o copo inteiro, começando pelos mais baratos) e **com desconto** (cobertura parcial).
 
 **Consumo próprio.** O café que eu e o Digo tomamos é registrado na hora, na própria Venda. Sai do café pronto, mas **não é venda**: não conta em faturamento, ticket médio nem sorteio.
 
@@ -308,7 +310,7 @@ O simulador reproduz detalhes que costumam esconder bugs no Planilhas real: text
 
 ## Qualidade
 
-- **551 verificações automáticas** das regras: venda, preparo, compra, estoque, fechamento, estorno, sorteio, desconto, consumo, painéis, auditoria, DDL e migração de planilhas já instaladas.
+- **565 verificações automáticas** das regras: venda, preparo, compra, estoque, fechamento, estorno, sorteio, desconto, consumo, painéis, auditoria, DDL e migração de planilhas já instaladas.
 - **Painéis conferidos contra os registros:** os testes recalculam cada número de cada painel direto das linhas e comparam com a tela.
 - **Teste diferencial do cache:** depois de cada uma de mais de vinte operações, todas as telas lidas com cache são comparadas com as lidas direto da planilha e precisam ser idênticas. Cache sumindo, corrompido ou falhando também não pode mudar resultado.
 - **Orçamento de chamadas:** os testes falham se uma gravação passar de 8 chamadas à planilha ou se abrir uma tela já vista tocar na planilha.

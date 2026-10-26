@@ -10,7 +10,7 @@
  */
 var VERSAO_ESQUEMA = 1;
 /* sobe quando a instalação passa a fazer algo novo (ex.: formatar as linhas). O app recusa trabalhar até rodar "Instalar / atualizar". */
-var VERSAO_INSTALACAO_ = 8;
+var VERSAO_INSTALACAO_ = 9;
 var INICIO_VIGENCIA = '2000-01-01T00:00:00.000Z';
 
 var AUDITORIA_ = 'criado_em:dt, criado_por:id>usuario, atualizado_em:dt?, atualizado_por:id>usuario?, versao:int';
@@ -24,7 +24,7 @@ var DEF_ESQUEMA_ = [
   ['produto_variante', 'cadastro', 'Produto + tamanho (o que realmente se vende)', 'id:id*, produto_id:id>produto, tamanho_ml:int, ativo:bool', 1],
   ['preco_venda', 'cadastro', 'Preço de venda por vigência (nunca se altera: cria linha nova)', 'id:id*, variante_id:id>produto_variante, preco_centavos:cent, vigente_de:dt, vigente_ate:dt?, criado_em:dt, criado_por:id>usuario', 0],
   ['composicao_copo', 'cadastro', 'O que vai em cada copo (canela e qual copo), por vigência. leite_ml é legado e fica em 0: o café com leite já vem misturado no preparo', 'id:id*, variante_id:id>produto_variante, leite_ml:qtd, canela_g:qtd, copo_material_id:id>material, vigente_de:dt, vigente_ate:dt?', 1],
-  ['receita_cafe', 'cadastro', 'Receita do café (por litro), por vigência e por tipo (CAFE ou CAFE_LEITE: o leite entra no preparo, não no copo). Sem pessoa = padrão da casa; com pessoa = receita própria de quem prepara', 'id:id*, usuario_id:id>usuario?, colheres_por_litro:qtd, g_por_colher:qtd, filtros_por_litro:qtd, acucar_g_por_litro:qtd, agua_ml_por_litro:qtd, vigente_de:dt, vigente_ate:dt?', 1, 'base:enum(CAFE|CAFE_LEITE), leite_ml_por_litro:qtd'],
+  ['receita_cafe', 'cadastro', 'Receita do café (por litro), por vigência e por tipo (CAFE ou CAFE_LEITE: o leite entra no preparo, não no copo). Sem pessoa = padrão da casa; com pessoa = receita própria de quem prepara', 'id:id*, usuario_id:id>usuario?, colheres_por_litro:qtd, g_por_colher:qtd, filtros_por_litro:qtd, acucar_g_por_litro:qtd, agua_ml_por_litro:qtd, vigente_de:dt, vigente_ate:dt?', 1, 'base:enum(CAFE|CAFE_LEITE), leite_ml_por_litro:qtd, g_por_colher_acucar:qtd'],
   ['fornecedor', 'cadastro', 'Onde as compras são feitas', 'id:id*, nome:texto#, ativo:bool', 1],
   ['forma_pagamento', 'cadastro', 'Formas de pagamento', 'id:id*, nome:texto#, ativo:bool', 1],
   ['motivo_perda', 'cadastro', 'Motivos de perda de café', 'id:id*, nome:texto#, ativo:bool', 1],
@@ -130,8 +130,8 @@ function sementes_(agora) {
   S.preco_venda = VARS.map(function (v) { return { id: 'pv-' + v[0].slice(4), variante_id: v[0], preco_centavos: v[3], vigente_de: v0, vigente_ate: null, criado_em: agora, criado_por: 'usr-sistema' }; });
   S.composicao_copo = VARS.map(function (v) { return c({ id: 'cc-' + v[0].slice(4), variante_id: v[0], leite_ml: v[4], canela_g: v[5], copo_material_id: v[6], vigente_de: v0, vigente_ate: null }); });
   S.receita_cafe = [
-    c({ id: 'rec-1', usuario_id: null, colheres_por_litro: 4, g_por_colher: 7, filtros_por_litro: 1, acucar_g_por_litro: 0, agua_ml_por_litro: 1000, vigente_de: v0, vigente_ate: null, base: 'CAFE', leite_ml_por_litro: 0 }),
-    c({ id: 'rec-2', usuario_id: null, colheres_por_litro: 4, g_por_colher: 7, filtros_por_litro: 1, acucar_g_por_litro: 0, agua_ml_por_litro: 600, vigente_de: v0, vigente_ate: null, base: 'CAFE_LEITE', leite_ml_por_litro: 400 })
+    c({ id: 'rec-1', usuario_id: null, colheres_por_litro: 4, g_por_colher: 7, filtros_por_litro: 1, acucar_g_por_litro: 0, agua_ml_por_litro: 1000, vigente_de: v0, vigente_ate: null, base: 'CAFE', leite_ml_por_litro: 0, g_por_colher_acucar: 10 }),
+    c({ id: 'rec-2', usuario_id: null, colheres_por_litro: 4, g_por_colher: 7, filtros_por_litro: 1, acucar_g_por_litro: 0, agua_ml_por_litro: 600, vigente_de: v0, vigente_ate: null, base: 'CAFE_LEITE', leite_ml_por_litro: 400, g_por_colher_acucar: 10 })
   ];
   S.fornecedor = [c({ id: 'for-a', nome: 'Mercado A', ativo: true }), c({ id: 'for-b', nome: 'Mercado B', ativo: true }), c({ id: 'for-o', nome: 'Outro', ativo: true })];
   S.forma_pagamento = [c({ id: 'fp-dinheiro', nome: 'Dinheiro', ativo: true }), c({ id: 'fp-pix', nome: 'Pix', ativo: true }), c({ id: 'fp-cartao', nome: 'Cartão', ativo: true })];

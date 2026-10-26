@@ -113,7 +113,7 @@ function clienteMascarado_(db, ctx, p) {
 function viewPreparo_(db, ctx) {
   var ts = ctx.agora.dataHora, dia = ctx.agora.diaLocal, prods = mapa_(db, 'produto'), us = mapa_(db, 'usuario');
   var receitaPor = {}, receitas = {};
-  function fmtR3(r, u) { return { colheres: r.colheres_por_litro, gPorColher: r.g_por_colher, filtros: r.filtros_por_litro, acucar: r.acucar_g_por_litro, agua: r.agua_ml_por_litro, leite: r.leite_ml_por_litro || 0, propria: r.usuario_id === u.id }; }
+  function fmtR3(r, u) { return { colheres: r.colheres_por_litro, gPorColher: r.g_por_colher, filtros: r.filtros_por_litro, acucar: r.acucar_g_por_litro, agua: r.agua_ml_por_litro, leite: r.leite_ml_por_litro || 0, gPorColherAcucar: r.g_por_colher_acucar || 10, propria: r.usuario_id === u.id }; }
   BASES_.forEach(function (b) { receitas[b] = {}; db.t('usuario').filter(ativoOk_).forEach(function (u) { receitas[b][u.id] = fmtR3(receitaVigente_(db, ts, u.id, b), u); }); });
   receitaPor = receitas.CAFE;   // compatível com a tela antiga: a receita do café
   var copo = {}, produtos = db.t('produto_variante').filter(ativoOk_).map(function (v) {
@@ -211,7 +211,7 @@ function viewEstoque_(db, ctx, sub) {
 /* ---------------- agregados para painéis e financeiro ---------------- */
 /* desde: 'AAAA-MM-DD' (só dali em diante) ou null (tudo). Investido e reembolsado são sempre o acumulado. */
 function agregados_(db, ts, desde) {
-  var A = { litrosBase: { CAFE: 0, CAFE_LEITE: 0 }, fat: 0, fatSort: 0, copos: 0, nVendas: 0, vendMl: 0, porProd: {}, porPag: {}, porHora: {}, porTam: {}, desc: 0, nDesc: 0, mlServido: 0, consumoMl: 0, consumoCopos: 0, litros: 0, nPrep: 0, nPrepPend: 0, prodMlLanc: 0, gCafe: 0, prodMl: 0, custoAt: 0, custoPad: 0, gasto: 0, nCompras: 0, porLocal: {}, despesas: 0, perdaMot: {}, pess: {}, litrosPess: {}, histCafe: [] };
+  var A = { litrosBase: { CAFE: 0, CAFE_LEITE: 0 }, fat: 0, fatSort: 0, copos: 0, nVendas: 0, vendMl: 0, porProd: {}, porPag: {}, porHora: {}, copGratis: 0, copParcial: 0, porTam: {}, desc: 0, nDesc: 0, mlServido: 0, consumoMl: 0, consumoCopos: 0, litros: 0, nPrep: 0, nPrepPend: 0, prodMlLanc: 0, gCafe: 0, prodMl: 0, custoAt: 0, custoPad: 0, gasto: 0, nCompras: 0, porLocal: {}, despesas: 0, perdaMot: {}, pess: {}, litrosPess: {}, histCafe: [] };
   var us = db.t('usuario').filter(ativoOk_), formas = mapa_(db, 'forma_pagamento'), forn = mapa_(db, 'fornecedor'), mot = mapa_(db, 'motivo_perda'), vars = mapa_(db, 'produto_variante');
   function dentro(dia) { return !desde || dia >= desde; }
   us.forEach(function (u) { A.pess[u.id] = { ml: 0, invest: 0, reemb: 0 }; A.litrosPess[u.id] = 0; });
@@ -242,6 +242,14 @@ function agregados_(db, ts, desde) {
     A.nCompras++; A.gasto += c.valor_total_centavos; add(A.porLocal, nomeDe_(forn, c.fornecedor_id), c.valor_total_centavos);
   });
   db.t('consumo_proprio').forEach(function (c) { if (c.status === 'ATIVO' && dentro(c.dia_local)) { A.consumoMl += c.ml_cafe; A.consumoCopos += c.copos; } });
+  // copos pagos x grátis: o desconto cobre primeiro os copos mais baratos; o que cobrir inteiro é "grátis", e o que sobrar num copo é "com desconto"
+  var undsPorVenda = {};
+  db.t('venda_item').forEach(function (i) { if (!vendasAt[i.venda_id]) return; var l = undsPorVenda[i.venda_id] = undsPorVenda[i.venda_id] || []; for (var k = 0; k < i.qtd; k++) l.push(i.preco_unit_centavos); });
+  db.t('venda').forEach(function (v) {
+    if (!vendasAt[v.id] || !(v.desconto_centavos > 0)) return;
+    var d = v.desconto_centavos;
+    (undsPorVenda[v.id] || []).sort(function (a, b) { return a - b; }).forEach(function (p) { if (d >= p && p > 0) { A.copGratis++; d -= p; } else if (d > 0) { A.copParcial++; d = 0; } });
+  });
   db.t('ajuste_cafe').forEach(function (a) { if (a.status === 'ATIVO' && a.tipo === 'PERDA' && dentro(a.dia_local)) add(A.perdaMot, nomeDe_(mot, a.motivo_id), -a.ml_cafe); });
   db.t('lancamento_financeiro').forEach(function (l) {
     if (l.status !== 'ATIVO' || !A.pess[l.usuario_id]) return;
@@ -291,7 +299,7 @@ function viewPaineis_(db, ctx, sub, periodo) {
       t2: 'Faturamento por forma de pagamento', b2: barras_(Object.keys(A.porPag).map(function (k) { return { lbl: k, n: A.porPag[k] }; }), fmtR_) };
   } else if (sub === 'vendas') {
     var horas = Object.keys(A.porHora).sort();
-    P = { tiles: [T('Vendas', String(A.nVendas)), T('Ticket médio', fmtR_(A.nVendas ? A.fat / A.nVendas : 0)), T('Copos', String(A.copos)), T('Café vendido', fmtN_(A.vendMl) + ' ml'), T('Descontos dados', fmtR_(A.desc) + (A.nDesc ? ' \u00B7 ' + A.nDesc + (A.nDesc === 1 ? ' venda' : ' vendas') : ''))],
+    P = { tiles: [T('Vendas', String(A.nVendas)), T('Ticket médio', fmtR_(A.nVendas ? A.fat / A.nVendas : 0)), T('Copos', String(A.copos)), T('Copos pagos', String(A.copos - A.copGratis - A.copParcial)), T('Copos grátis', String(A.copGratis)), T('Copos com desconto', String(A.copParcial)), T('Café vendido', fmtN_(A.vendMl) + ' ml'), T('Descontos dados', fmtR_(A.desc) + (A.nDesc ? ' \u00B7 ' + A.nDesc + (A.nDesc === 1 ? ' venda' : ' vendas') : ''))],
       t1: 'Vendas por horário', b1: barras_(horas.map(function (h) { return { lbl: h + 'h', n: A.porHora[h] }; }), function (n) { return n + (n === 1 ? ' venda' : ' vendas'); }),
       t2: 'Copos por tamanho', b2: barras_(Object.keys(A.porTam).map(Number).concat(vars.map(function (v) { return v.tamanho_ml; }).filter(function (t, i, l) { return !A.porTam[t] && l.indexOf(t) === i; })).sort(function (a, b) { return a - b; }).map(function (ml) { return { lbl: ml + ' ml', n: A.porTam[ml] || 0 }; }), nCopos_) };
   } else if (sub === 'estoque') {
@@ -347,10 +355,10 @@ function viewCadastros_(db, ctx, sub) {
     return { sub: sub, produtos: vars.map(function (v) { return { id: v.id, nome: prods[v.produto_id].nome, tamanho: v.tamanho_ml, preco: precoVigente_(db, v.id, ts), ativo: v.ativo }; }), historico: hist.slice(0, 12).map(function (h) { return h.txt; }) };
   }
   if (sub === 'receitas') {
-    function fmtRec(r) { return { colheres: r.colheres_por_litro, gPorColher: r.g_por_colher, filtros: r.filtros_por_litro, acucar: r.acucar_g_por_litro, agua: r.agua_ml_por_litro, leite: r.leite_ml_por_litro || 0 }; }
+    function fmtRec(r) { return { colheres: r.colheres_por_litro, gPorColher: r.g_por_colher, filtros: r.filtros_por_litro, acucar: r.acucar_g_por_litro, agua: r.agua_ml_por_litro, leite: r.leite_ml_por_litro || 0, gPorColherAcucar: r.g_por_colher_acucar || 10 }; }
     var escopos = [{ id: '', nome: 'Padrão da casa', propria: true, propriaLeite: true, receita: fmtRec(receitaVigente_(db, ts, null, 'CAFE')), receitaLeite: fmtRec(receitaVigente_(db, ts, null, 'CAFE_LEITE')) }].concat(db.t('usuario').filter(ativoOk_).map(function (u) { var r = receitaVigente_(db, ts, u.id, 'CAFE'), rl = receitaVigente_(db, ts, u.id, 'CAFE_LEITE'); return { id: u.id, nome: u.nome, propria: r.usuario_id === u.id, propriaLeite: rl.usuario_id === u.id, receita: fmtRec(r), receitaLeite: fmtRec(rl) }; }));
     return { sub: sub, escopos: escopos,
-      copos: db.t('material').filter(function (m) { return m.ativo && m.unidade === 'un'; }).map(function (m) { return { id: m.id, nome: m.nome }; }),
+      copos: db.t('material').filter(function (m) { return m.ativo && m.unidade === 'un' && (/copo/i.test(m.nome) || db.t('composicao_copo').some(function (c) { return c.copo_material_id === m.id; })); }).map(function (m) { return { id: m.id, nome: m.nome }; }),
       composicao: db.t('produto_variante').filter(ativoOk_).map(function (v) { var c = composicaoVigente_(db, v.id, ts); return { id: v.id, nome: prods[v.produto_id].nome, tamanho: v.tamanho_ml, canelaG: c.canela_g, cafeMl: v.tamanho_ml, copoId: c.copo_material_id }; }) };
   }
   if (sub === 'listas') {

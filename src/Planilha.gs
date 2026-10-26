@@ -301,6 +301,7 @@ function preencherColunaNova_(sh, def, coluna, ss) {
     sh.getRange(2, idx, n, 1).setValues(vars.map(function (r) { return [tam[r[0]] || '']; }));
   }
   if (def.nome === 'receita_cafe' && coluna === 'base') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return ['CAFE']; }));
+  if (def.nome === 'receita_cafe' && coluna === 'g_por_colher_acucar') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return [10]; }));
   if (def.nome === 'receita_cafe' && coluna === 'leite_ml_por_litro') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return [0]; }));
   if (def.nome === 'preparo' && coluna === 'base') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return ['CAFE']; }));
   if (def.nome === 'preparo' && coluna === 'materiais_status') sh.getRange(2, idx, n, 1).setValues(ids.map(function () { return ['LANCADO']; }));
