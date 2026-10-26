@@ -211,7 +211,7 @@ function viewEstoque_(db, ctx, sub) {
 /* ---------------- agregados para painéis e financeiro ---------------- */
 /* desde: 'AAAA-MM-DD' (só dali em diante) ou null (tudo). Investido e reembolsado são sempre o acumulado. */
 function agregados_(db, ts, desde) {
-  var A = { litrosBase: { CAFE: 0, CAFE_LEITE: 0 }, fat: 0, fatSort: 0, copos: 0, nVendas: 0, vendMl: 0, porProd: {}, porPag: {}, porHora: {}, copGratis: 0, copParcial: 0, porTam: {}, desc: 0, nDesc: 0, mlServido: 0, consumoMl: 0, consumoCopos: 0, litros: 0, nPrep: 0, nPrepPend: 0, prodMlLanc: 0, gCafe: 0, prodMl: 0, custoAt: 0, custoPad: 0, gasto: 0, nCompras: 0, porLocal: {}, despesas: 0, perdaMot: {}, pess: {}, litrosPess: {}, histCafe: [] };
+  var A = { litrosBase: { CAFE: 0, CAFE_LEITE: 0 }, fat: 0, fatSort: 0, copos: 0, nVendas: 0, vendMl: 0, porProd: {}, porPag: {}, porHora: {}, copGratis: 0, copParcial: 0, mlGratis: 0, mlParcial: 0, acertoMl: 0, perdaMl: 0, porTam: {}, desc: 0, nDesc: 0, mlServido: 0, consumoMl: 0, consumoCopos: 0, litros: 0, nPrep: 0, nPrepPend: 0, prodMlLanc: 0, gCafe: 0, prodMl: 0, custoAt: 0, custoPad: 0, gasto: 0, nCompras: 0, porLocal: {}, despesas: 0, perdaMot: {}, pess: {}, litrosPess: {}, histCafe: [] };
   var us = db.t('usuario').filter(ativoOk_), formas = mapa_(db, 'forma_pagamento'), forn = mapa_(db, 'fornecedor'), mot = mapa_(db, 'motivo_perda'), vars = mapa_(db, 'produto_variante');
   function dentro(dia) { return !desde || dia >= desde; }
   us.forEach(function (u) { A.pess[u.id] = { ml: 0, invest: 0, reemb: 0 }; A.litrosPess[u.id] = 0; });
@@ -246,13 +246,16 @@ function agregados_(db, ts, desde) {
   db.t('consumo_proprio_item').forEach(function (i) { if (consAt[i.consumo_id]) { A.custoAt += i.custo_copo_centavos || 0; A.custoPad += i.custo_copo_centavos || 0; } });   // copo usado no consumo nosso também é custo
   // copos pagos x grátis: o desconto cobre primeiro os copos mais baratos; o que cobrir inteiro é "grátis", e o que sobrar num copo é "com desconto"
   var undsPorVenda = {};
-  db.t('venda_item').forEach(function (i) { if (!vendasAt[i.venda_id]) return; var l = undsPorVenda[i.venda_id] = undsPorVenda[i.venda_id] || []; for (var k = 0; k < i.qtd; k++) l.push(i.preco_unit_centavos); });
+  db.t('venda_item').forEach(function (i) { if (!vendasAt[i.venda_id]) return; var l = undsPorVenda[i.venda_id] = undsPorVenda[i.venda_id] || []; for (var k = 0; k < i.qtd; k++) l.push({ p: i.preco_unit_centavos, ml: i.ml_cafe_unit }); });
   db.t('venda').forEach(function (v) {
     if (!vendasAt[v.id] || !(v.desconto_centavos > 0)) return;
     var d = v.desconto_centavos;
-    (undsPorVenda[v.id] || []).sort(function (a, b) { return a - b; }).forEach(function (p) { if (d >= p && p > 0) { A.copGratis++; d -= p; } else if (d > 0) { A.copParcial++; d = 0; } });
+    (undsPorVenda[v.id] || []).sort(function (a, b) { return a.p - b.p; }).forEach(function (u) { if (d >= u.p && u.p > 0) { A.copGratis++; A.mlGratis += u.ml; d -= u.p; } else if (d > 0) { A.copParcial++; A.mlParcial += u.ml; d = 0; } });
   });
-  db.t('ajuste_cafe').forEach(function (a) { if (a.status === 'ATIVO' && a.tipo === 'PERDA' && dentro(a.dia_local)) add(A.perdaMot, nomeDe_(mot, a.motivo_id), -a.ml_cafe); });
+  db.t('ajuste_cafe').forEach(function (a) {
+    if (a.status !== 'ATIVO' || !dentro(a.dia_local)) return;
+    if (a.tipo === 'PERDA') { add(A.perdaMot, nomeDe_(mot, a.motivo_id), -a.ml_cafe); A.perdaMl += -a.ml_cafe; } else A.acertoMl += a.ml_cafe;
+  });
   db.t('lancamento_financeiro').forEach(function (l) {
     if (l.status !== 'ATIVO' || !A.pess[l.usuario_id]) return;
     if (l.tipo === 'REEMBOLSO') A.pess[l.usuario_id].reemb += l.valor_centavos;
@@ -301,9 +304,16 @@ function viewPaineis_(db, ctx, sub, periodo) {
       t2: 'Faturamento por forma de pagamento', b2: barras_(Object.keys(A.porPag).map(function (k) { return { lbl: k, n: A.porPag[k] }; }), fmtR_) };
   } else if (sub === 'vendas') {
     var horas = Object.keys(A.porHora).sort();
-    P = { tiles: [T('Vendas', String(A.nVendas)), T('Ticket médio', fmtR_(A.nVendas ? A.fat / A.nVendas : 0)), T('Copos', String(A.copos)), T('Copos pagos', String(A.copos - A.copGratis - A.copParcial)), T('Copos grátis', String(A.copGratis)), T('Copos com desconto', String(A.copParcial)), T('Café vendido', fmtN_(A.vendMl) + ' ml'), T('Descontos dados', fmtR_(A.desc) + (A.nDesc ? ' \u00B7 ' + A.nDesc + (A.nDesc === 1 ? ' venda' : ' vendas') : ''))],
+    P = { tiles: [T('Vendas', String(A.nVendas)), T('Ticket médio', fmtR_(A.nVendas ? A.fat / A.nVendas : 0)), T('Copos', String(A.copos)), T('Copos pagos', String(A.copos - A.copGratis - A.copParcial)), T('Copos grátis', String(A.copGratis)), T('Copos com desconto', String(A.copParcial)), T('Café nas vendas', fmtN_(A.vendMl) + ' ml'), T('Descontos dados', fmtR_(A.desc) + (A.nDesc ? ' \u00B7 ' + A.nDesc + (A.nDesc === 1 ? ' venda' : ' vendas') : ''))],
       t1: 'Vendas por horário', b1: barras_(horas.map(function (h) { return { lbl: h + 'h', n: A.porHora[h] }; }), function (n) { return n + (n === 1 ? ' venda' : ' vendas'); }),
       t2: 'Copos por tamanho', b2: barras_(Object.keys(A.porTam).map(Number).concat(vars.map(function (v) { return v.tamanho_ml; }).filter(function (t, i, l) { return !A.porTam[t] && l.indexOf(t) === i; })).sort(function (a, b) { return a - b; }).map(function (ml) { return { lbl: ml + ' ml', n: A.porTam[ml] || 0 }; }), nCopos_) };
+  } else if (sub === 'destino') {
+    var cPago = A.copos - A.copGratis - A.copParcial, mPago = A.vendMl - A.mlGratis - A.mlParcial, entrou = A.prodMl + A.acertoMl;
+    var saiu = A.vendMl + A.consumoMl + A.perdaMl, falta = r3_(entrou - saiu);
+    function cm(c, m) { return c + (c === 1 ? ' copo' : ' copos') + ' \u00B7 ' + fmtN_(m) + ' ml'; }
+    P = { tiles: [T('Vendido (pago)', cm(cPago, mPago)), T('Grátis', cm(A.copGratis, A.mlGratis)), T('Com desconto', cm(A.copParcial, A.mlParcial)), T('Total nas vendas', cm(A.copos, A.vendMl)), T('Consumo nosso', cm(A.consumoCopos, A.consumoMl)), T('Perdido', fmtN_(A.perdaMl) + ' ml'), T('Preparado', fmtN_(entrou) + ' ml'), T('Ainda sem destino', fmtN_(falta) + ' ml')],
+      t1: 'Para onde foi o café (ml)', b1: barras_([{ lbl: 'Vendido (pago)', n: mPago }, { lbl: 'Grátis', n: A.mlGratis }, { lbl: 'Com desconto', n: A.mlParcial }, { lbl: 'Consumo nosso', n: A.consumoMl }, { lbl: 'Perdido', n: A.perdaMl }], function (n) { return fmtN_(n) + ' ml'; }),
+      t2: 'Copos por destino', b2: barras_([{ lbl: 'Vendido (pago)', n: cPago }, { lbl: 'Grátis', n: A.copGratis }, { lbl: 'Com desconto', n: A.copParcial }, { lbl: 'Consumo nosso', n: A.consumoCopos }], nCopos_) };
   } else if (sub === 'estoque') {
     var sal = saldosEstoque_(db), mats = db.t('material').filter(function (m) { return m.ativo && controla_(m); }), cafeId = materiaisChave_(db, ts).cafe;
     function totalMat(m) { return soma_(us, function (u) { return qtdEstoque_(sal, u.id, m.id); }); }

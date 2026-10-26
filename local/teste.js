@@ -811,7 +811,7 @@ grupo('painéis batem com os registros');
   const pag = (f) => soma(vA.filter((x) => x.forma_pagamento_id === f), (x) => x.total_cafe_centavos + x.total_sorteio_centavos);
   ok(lim(barra(v.b2, 'Dinheiro').val) === fR(pag('fp-dinheiro')) && lim(barra(v.b2, 'Pix').val) === fR(pag('fp-pix')) && lim(barra(v.b2, 'Cartão').val) === fR(pag('fp-cartao')), 'Geral: faturamento por forma de pagamento', v.b2);
   v = painel('vendas');
-  ok(tile(v, 'Vendas') === String(vA.length) && tile(v, 'Ticket médio') === fR(fat / vA.length) && lim(tile(v, 'Café vendido')) === T.ctx.fmtN_(soma(vA, (x) => x.ml_cafe)) + ' ml', 'Vendas: quantidade, ticket médio e café vendido');
+  ok(tile(v, 'Vendas') === String(vA.length) && tile(v, 'Ticket médio') === fR(fat / vA.length) && lim(tile(v, 'Café nas vendas')) === T.ctx.fmtN_(soma(vA, (x) => x.ml_cafe)) + ' ml', 'Vendas: quantidade, ticket médio e café nas vendas');
   ok(v.b1.reduce((t, b) => t + parseInt(b.val, 10), 0) === vA.length, 'Vendas: as vendas por horário somam o total', v.b1);
   v = painel('compras');
   ok(tile(v, 'Gasto total') === fR(gasto) && tile(v, 'Compras') === String(cA.length), 'Compras: gasto e quantidade');
@@ -1068,7 +1068,7 @@ grupo('desconto manual na venda e volume servido');
   const vA = T.db().t('venda').filter((v) => v.status === 'ATIVO');
   ok(t2('Descontos dados') === T.ctx.fmtR_(vA.reduce((s, v) => s + (v.desconto_centavos || 0), 0)).replace(/\u00A0/g, ' ') + ' · 3 vendas', 'painel: descontos dados (R$ 2,50 em 3 vendas)', t2('Descontos dados'));
   const itensA = T.db().t('venda_item').filter((i) => vA.some((v) => v.id === i.venda_id));
-  ok(parseFloat(t2('Café vendido').replace('.', '').replace(',', '.')) === vA.reduce((s, v) => s + v.ml_cafe, 0) && itensA.every((i) => i.ml_cafe_unit === i.tamanho_ml), 'painel: café vendido = soma dos copos (o copo só tem café, então o café é o tamanho inteiro)', t2('Café vendido'));
+  ok(parseFloat(t2('Café nas vendas').replace('.', '').replace(',', '.')) === vA.reduce((s, v) => s + v.ml_cafe, 0) && itensA.every((i) => i.ml_cafe_unit === i.tamanho_ml), 'painel: café nas vendas = soma dos copos (o copo só tem café, então o café é o tamanho inteiro)', t2('Café nas vendas'));
   const fat = ver(T, T.pedro, 'paineis', 'geral', 'hoje').tiles.find((x) => x.lbl === 'Faturamento dos cafés').val.replace(/\u00A0/g, ' ');
   ok(fat === T.ctx.fmtR_(vA.reduce((s, v) => s + v.total_cafe_centavos, 0)).replace(/\u00A0/g, ' '), 'o faturamento usa o valor cobrado (já com desconto)', fat);
   ok(T.ch(T.pedro, 'sistema.auditar').limpo, 'auditoria limpa com descontos');
@@ -1164,7 +1164,7 @@ grupo('sorteio com número em centavos e copo com tamanho editável');
   const pn = ver(T, T.pedro, 'paineis', 'geral', 'tudo').b1.map((b) => b.lbl), pt = ver(T, T.pedro, 'paineis', 'vendas', 'tudo').b2.map((b) => b.lbl);
   ok(pn.includes('normal 200 ml') && pn.includes('normal 100 ml') && pt.includes('100 ml') && pt.includes('200 ml') && pt.includes('50 ml'), 'painéis separam o que foi vendido a 100 ml do que foi vendido a 200 ml', [pn, pt]);
   const vA = T.db().t('venda').filter((x) => x.status === 'ATIVO'), itens = T.db().t('venda_item').filter((i) => vA.some((x) => x.id === i.venda_id));
-  const sv = ver(T, T.pedro, 'paineis', 'vendas', 'tudo').tiles.find((x) => x.lbl === 'Café vendido').val.replace(/\u00A0/g, ' ');
+  const sv = ver(T, T.pedro, 'paineis', 'vendas', 'tudo').tiles.find((x) => x.lbl === 'Café nas vendas').val.replace(/\u00A0/g, ' ');
   ok(sv === T.ctx.fmtN_(itens.reduce((s, i) => s + i.qtd * i.tamanho_ml, 0)) + ' ml', 'café vendido soma os tamanhos da época', sv);
   // limites
   ok(/entre 20 e 1\.000 ml/.test(T.ch(T.pedro, 'variante.salvar', { variante_id: 'var-n100', tamanho_ml: 5 }).erro), 'tamanho absurdo é recusado');
@@ -1340,6 +1340,40 @@ grupo('canela em colher e água só como custo');
   const lit = T.ch(T.pedro, 'ver', { tela: 'paineis', sub: 'fin', periodo: 'tudo' }), custoAgua = T.db().t('preparo_consumo').filter((c) => c.material_id === 'mat-agua').reduce((s, c) => s + c.custo_atual_centavos, 0);
   ok(custoAgua >= 43 && lit.ok, 'o custo da água entra no Resultado como parte do custo do preparo', custoAgua);
   ok(T.ch(T.pedro, 'sistema.auditar').limpo && T3.ch(T3.pedro, 'sistema.auditar').limpo, 'auditoria limpa');
+}
+
+grupo('destino do café: vendido, grátis, com desconto, consumo e perda');
+{
+  const T = iniciar({ exemplos: true });
+  const lim = (s) => String(s).replace(/\u00A0/g, ' ');
+  const dest = (periodo) => T.ch(T.pedro, 'ver', { tela: 'paineis', sub: 'destino', periodo: periodo || 'tudo' });
+  const tl = (v, l) => lim(v.tiles.find((x) => x.lbl === l).val);
+  let v = dest();
+  ok(v.ok && v.tiles.length === 8 && v.b1.length === 5 && v.b2.length === 4, 'painel Destino do café com tiles e dois gráficos');
+  ok(tl(v, 'Vendido (pago)') === '7 copos · 500 ml' && tl(v, 'Grátis') === '0 copos · 0 ml' && tl(v, 'Com desconto') === '0 copos · 0 ml', 'sem desconto: tudo que saiu nas vendas é vendido pago (7 copos, 500 ml)', [tl(v, 'Vendido (pago)'), tl(v, 'Grátis')]);
+  const vd = (itens, desc) => T.ch(T.pedro, 'venda.registrar', { id: T.uid(), itens: itens, forma_pagamento_id: 'fp-pix', desconto_centavos: desc });
+  ok(vd({ 'var-n50': 1, 'var-n100': 1 }, 100).ok, 'venda com o café de 50 ml de graça');
+  ok(tl(dest(), 'Total nas vendas') === '9 copos · 650 ml', 'total nas vendas = pago + grátis + com desconto', tl(dest(), 'Total nas vendas'));
+  ok(vd({ 'var-c100': 2 }, 300).ok, 'venda de 2 cafés com canela de 100 ml (R$ 2,00 cada) com R$ 3,00 de desconto: 1 grátis e outro com desconto');
+  T.ch(T.pedro, 'consumo.registrar', { id: T.uid(), itens: { 'var-l100': 1, 'var-n50': 2 } });
+  T.ch(T.pedro, 'cafe.perda', { id: T.uid(), ml: 120, motivo_id: 'mp-derramou' });
+  v = dest();
+  ok(tl(v, 'Vendido (pago)') === '8 copos · 600 ml', 'vendido pago: 7 + o café de 100 ml da 1ª venda', tl(v, 'Vendido (pago)'));
+  ok(tl(v, 'Grátis') === '2 copos · 150 ml' && tl(v, 'Com desconto') === '1 copo · 100 ml', 'grátis (café de 50 ml + um com canela de 100 ml) e com desconto (o outro com canela)', [tl(v, 'Grátis'), tl(v, 'Com desconto')]);
+  ok(tl(v, 'Consumo nosso') === '3 copos · 200 ml' && tl(v, 'Perdido') === '120 ml', 'consumo nosso e perdido separados do vendido', [tl(v, 'Consumo nosso'), tl(v, 'Perdido')]);
+  const A = T.ctx.agregados_(T.db(), T.ctx.AGORA_TESTE().dataHora, null), entrou = A.prodMl + A.acertoMl, saiu = A.vendMl + A.consumoMl + A.perdaMl;
+  ok(tl(v, 'Preparado') === T.ctx.fmtN_(entrou) + ' ml' && tl(v, 'Ainda sem destino') === T.ctx.fmtN_(entrou - saiu) + ' ml' && Math.abs(A.vendMl - (600 + 150 + 100)) < 1e-9, 'preparado, e o que ainda não tem destino (preparado − vendido − consumo − perda)', [tl(v, 'Preparado'), tl(v, 'Ainda sem destino')]);
+  ok(T.ch(T.pedro, 'ver', { tela: 'paineis', sub: 'vendas', periodo: 'tudo' }).tiles.some((x) => x.lbl === 'Café nas vendas') && tl(T.ch(T.pedro, 'ver', { tela: 'paineis', sub: 'vendas', periodo: 'tudo' }), 'Café nas vendas') === '850 ml', 'o painel de Vendas mostra o café nas vendas (pago + grátis + com desconto = 850 ml)');
+  const idv = T.db().t('venda').slice(-1)[0].id;
+  ok(T.ch(T.pedro, 'estornar', { tabela: 'venda', id: idv }).ok, 'desfaz a venda com desconto');
+  v = dest();
+  ok(tl(v, 'Grátis') === '1 copo · 50 ml' && tl(v, 'Com desconto') === '0 copos · 0 ml', 'venda desfeita sai das contas de grátis e desconto', [tl(v, 'Grátis'), tl(v, 'Com desconto')]);
+  const h = dest('hoje');
+  ok(h.ok && h.periodo === 'hoje', 'o painel respeita o período');
+  ok(dest().b1[0].lbl === 'Vendido (pago)' && Number(dest().b1[0].pct) === 100, 'o vendido é a primeira barra do gráfico');
+  ok(T.ch(T.pedro, 'sistema.auditar').limpo, 'auditoria limpa (a tela só lê)');
+  const vazio = iniciar(), vv = vazio.ch(vazio.pedro, 'ver', { tela: 'paineis', sub: 'destino', periodo: 'tudo' });
+  ok(vv.ok && tl(vv, 'Vendido (pago)') === '0 copos · 0 ml' && tl(vv, 'Ainda sem destino') === '0 ml', 'sem nenhum registro: tudo zero, sem erro');
 }
 
 grupo('dia a dia: dias com e sem serviço');

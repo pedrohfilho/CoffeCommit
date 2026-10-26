@@ -42,7 +42,7 @@ Eu faço o papel de DBA do projeto. Por isso o **modelo de dados vem antes das t
 | **Fechamento do dia** | Confere se tudo o que foi preparado está explicado: vendido, perdido ou tomado |
 | **Clientes e sorteio** | Cadastro mínimo, números com código, sorteios em rodadas e conferência do número sorteado |
 | **Financeiro** | Aportes, reembolsos, despesas, resultado e payback por pessoa |
-| **Painéis** | Sete visões por período (hoje, 7 dias, tudo), calculadas dos registros, mais o **Dia a dia**: um calendário do mês que mostra os dias com serviço, os sem serviço e os mais fortes (por copos, faturamento ou litros), com o detalhe de cada dia e a média por dia da semana |
+| **Painéis** | Oito visões por período (hoje, 7 dias, tudo), calculadas dos registros, incluindo o **Destino do café** (vendido pago, grátis, com desconto, consumo nosso e perdido, em copos e ml), mais o **Dia a dia**: um calendário do mês que mostra os dias com serviço, os sem serviço e os mais fortes (por copos, faturamento ou litros), com o detalhe de cada dia e a média por dia da semana |
 | **Histórico** | Tudo o que foi registrado, com "desfazer" por estorno |
 | **Sistema** | Auditoria de integridade e preparo para a carga no MySQL |
 
@@ -312,7 +312,7 @@ O simulador reproduz detalhes que costumam esconder bugs no Planilhas real: text
 
 ## Qualidade
 
-- **608 verificações automáticas** das regras: venda, preparo, compra, estoque, fechamento, estorno, sorteio, desconto, consumo, painéis, auditoria, DDL e migração de planilhas já instaladas.
+- **624 verificações automáticas** das regras: venda, preparo, compra, estoque, fechamento, estorno, sorteio, desconto, consumo, painéis, auditoria, DDL e migração de planilhas já instaladas.
 - **Painéis conferidos contra os registros:** os testes recalculam cada número de cada painel direto das linhas e comparam com a tela.
 - **Teste diferencial do cache:** depois de cada uma de mais de vinte operações, todas as telas lidas com cache são comparadas com as lidas direto da planilha e precisam ser idênticas. Cache sumindo, corrompido ou falhando também não pode mudar resultado.
 - **Orçamento de chamadas:** os testes falham se uma gravação passar de 8 chamadas à planilha ou se abrir uma tela já vista tocar na planilha.
