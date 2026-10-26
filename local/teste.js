@@ -1580,6 +1580,19 @@ grupo('gráficos: dados da série diária, das horas e da rosca do destino');
   ok(pv.ok && pv.colunas.length === 0 && gv.serie.length === 14 && gv.serie.every((x) => x.c === 0 && x.f === 0), 'sem registros: sem colunas e série zerada, sem erro');
 }
 
+grupo('gráficos: os dados trazem o valor puro para trocar o tipo de gráfico');
+{
+  const T = iniciar({ exemplos: true });
+  const painel = (sub) => T.ch(T.pedro, 'ver', { tela: 'paineis', sub: sub, periodo: 'tudo' });
+  const g = painel('geral'), vd = painel('vendas'), ds = painel('destino');
+  ok(g.b1.every((b) => typeof b.n === 'number') && g.b2.every((b) => typeof b.n === 'number' && b.n > 0), 'barras do Geral trazem n (valor puro)', g.b1);
+  ok(g.b2.reduce((s, b) => s + b.n, 0) === T.db().t('venda').filter((v) => v.status === 'ATIVO').reduce((s, v) => s + v.total_cafe_centavos + v.total_sorteio_centavos, 0), 'faturamento por forma de pagamento: os n somam o faturamento');
+  ok(vd.b2.every((b) => typeof b.n === 'number') && vd.b3.every((b) => typeof b.n === 'number') && ds.b1.every((b) => typeof b.n === 'number') && ds.b2.every((b) => typeof b.n === 'number'), 'Vendas e Destino também trazem n');
+  const dias = T.ch(T.pedro, 'ver', { tela: 'paineis', sub: 'dias' });
+  ok(dias.semana.every((s) => typeof s.n === 'number') && dias.semana.filter((s) => s.n > 0).length === 1, 'média por dia da semana traz n (só o dia das vendas dos exemplos)', dias.semana);
+  ok(ver(T, T.pedro, 'clientes', 'clube', '').ok, 'o clube segue respondendo');
+}
+
 grupo('dia a dia: dias com e sem serviço');
 {
   const T = iniciar({ exemplos: true });

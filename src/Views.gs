@@ -278,7 +278,7 @@ function agregados_(db, ts, desde, pessoa) {
 
 function barras_(arr, fmt) {
   var mx = Math.max.apply(null, [1].concat(arr.map(function (a) { return a.n; })));
-  return arr.map(function (a) { return { lbl: a.lbl, val: nb_(fmt(a.n)), pct: Math.max(2, Math.round(a.n / mx * 100)) }; });
+  return arr.map(function (a) { return { lbl: a.lbl, n: a.n, val: nb_(fmt(a.n)), pct: Math.max(2, Math.round(a.n / mx * 100)) }; });   // n é o valor puro, para o app poder trocar o tipo de gráfico
 }
 function nCopos_(n) { return n + (n === 1 ? ' copo' : ' copos'); }
 
@@ -410,7 +410,7 @@ function viewDias_(db, ctx, mesPedido, pessoaPedida) {
     melhor: melhor ? { dia: melhor, copos: dias[melhor].c, fat: dias[melhor].f } : null,
     fatMes: fat,
     total: { comServico: chaves.length, semServico: semServico('0000-01-01', '9999-12-31'), inicio: inicio },
-    semana: nomes.map(function (n, i) { return { lbl: n, val: nb_(porSem[i].dias ? fmtN_(medias[i]) + ' copos por dia · ' + porSem[i].dias + (porSem[i].dias === 1 ? ' dia' : ' dias') : 'sem venda'), pct: porSem[i].dias ? Math.max(2, Math.round(medias[i] / mx * 100)) : 0 }; })
+    semana: nomes.map(function (n, i) { return { lbl: n, n: r3_(medias[i]), val: nb_(porSem[i].dias ? fmtN_(medias[i]) + ' copos por dia · ' + porSem[i].dias + (porSem[i].dias === 1 ? ' dia' : ' dias') : 'sem venda'), pct: porSem[i].dias ? Math.max(2, Math.round(medias[i] / mx * 100)) : 0 }; })
   };
 }
 

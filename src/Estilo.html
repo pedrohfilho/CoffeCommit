@@ -70,6 +70,9 @@ button,input,select{font-family:inherit}
 .tag.okk{background:#DCEBDD;color:#1F4F2C}
 .tag.err{background:#F8D9D3;color:#8F2A1A}
 /* ---- gráficos (SVG) ---- */
+.gh{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px}
+.chips.tipo{gap:4px;flex-wrap:nowrap}
+.chip.mini{min-height:28px;padding:0 9px;border-radius:8px;font-size:12px}
 .gf{display:block;width:100%;height:auto;max-width:560px}
 .gf text{fill:#2A1A12;font-family:inherit}
 .gf text.mu{fill:#6B5547}
@@ -117,7 +120,8 @@ button,input,select{font-family:inherit}
 .aviso-topo{margin:0 12px 6px;padding:6px 10px;border-radius:10px;background:#FFF1E4;border:1px solid #E8B994;color:#8A3A12;font-size:12px;font-weight:600;flex-shrink:0}
 .tag.pend{display:inline-block;margin-top:2px}
 .nb.on{color:#A8481A}
-.mid,.val,.tv{white-space:nowrap}
+.mid,.val{white-space:nowrap}
+.tv{overflow-wrap:break-word}   /* valor comprido (ex.: "R$ 20,00 · 20 vendas") quebra em vez de estourar o cartão no celular */
 .mid{flex-shrink:0}
 .tag{white-space:nowrap}
 .mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;white-space:pre;line-height:1.6;color:#2A1A12;max-height:220px;overflow:auto}
