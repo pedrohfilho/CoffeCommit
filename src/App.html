@@ -167,7 +167,7 @@
   function corpo(h, rodape, cls) { return '<div class="body">' + h + '</div>' + (rodape ? '<div class="foot' + (cls ? ' ' + cls : '') + '">' + rodape + '</div>' : ''); }
   function carregando() { return '<div class="body">' + card(muted('Carregando\u2026')) + '</div>'; }
   function tiles(l) { return '<div class="tiles">' + l.map(function (x) { return '<div class="tile">' + lbl(x.lbl) + '<div class="tv">' + esc(x.val) + '</div></div>'; }).join('') + '</div>'; }
-  function barras(l) { return '<div class="list">' + l.map(function (b) { return '<div><div class="row"><span class="nm">' + esc(b.lbl) + '</span><span class="nm">' + esc(b.val) + '</span></div><div class="bar"><i style="width:' + b.pct + '%"></i></div></div>'; }).join('') + '</div>'; }
+  function barras(l) { return '<div class="list">' + l.map(function (b, k) { return '<div><div class="row"><span class="nm">' + esc(b.lbl) + '</span><span class="nm">' + esc(b.val) + '</span></div><div class="bar"><i style="width:' + b.pct + '%;background:' + PAL[k % PAL.length] + '"></i></div></div>'; }).join('') + '</div>'; }
   /* ============================ GRÁFICOS (SVG puro, sem biblioteca) ============================ */
   var COR = { pago: '#1F7A4D', gratis: '#C58A00', desc: '#C9773F', consumo: '#2B6CB0', perda: '#B3261E', base: '#A8481A', escuro: '#2A1A12', grade: '#E4D6C8' };
   function fmtGraf(f, n) { return f ? f(n) : String(n); }
@@ -223,26 +223,45 @@
   }
   /* ---- gráfico com opção de trocar o tipo (a escolha fica guardada no aparelho) ---- */
   var PAL = ['#A8481A', '#1F7A4D', '#2B6CB0', '#C58A00', '#B3261E', '#5B3E96', '#6E2A0C', '#2A1A12'];
-  var TIPOS_GRAF = { barras: 'Barras', colunas: 'Colunas', rosca: 'Rosca', linha: 'Linha' };
+  var TIPOS_GRAF = { barras: 'Barras', colunas: 'Colunas', pilha: 'Pilha', rosca: 'Rosca', linha: 'Linha', area: 'Área' };
   function corItem(it, k) { return it.cor ? (COR[it.cor] || it.cor) : PAL[k % PAL.length]; }
   function corCol(it, k, o) { return o.colorido ? corItem(it, k) : (it.cor ? (COR[it.cor] || it.cor) : COR.base); }
   function nCopos(n) { return n + (n === 1 ? ' copo' : ' copos'); }
   function nVendas(n) { return n + (n === 1 ? ' venda' : ' vendas'); }
   function mlTxt(n) { return fmtN(n) + ' ml'; }
+  /* cor do texto sobre uma cor de fundo (claro sobre escuro, escuro sobre claro) */
+  function textoSobre(hex) { var n = parseInt(hex.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255; return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? '#2A1A12' : '#FFFFFF'; }
+  /* pilha: uma barra só dividida em partes (parte do todo), com a legenda embaixo */
+  function pilhaGraf(itens, txt) {
+    var total = itens.reduce(function (s, i) { return s + i.n; }, 0);
+    var partes = itens.map(function (it, k) { var pct = total ? it.n / total * 100 : 0, c = corItem(it, k); return '<span style="width:' + pct.toFixed(2) + '%;background:' + c + ';color:' + textoSobre(c) + '" title="' + esc(it.lbl + ': ' + txt(it)) + '">' + (pct >= 12 ? Math.round(pct) + '%' : '') + '</span>'; }).join('');
+    return '<div class="pilha" role="img" aria-label="' + esc(itens.map(function (i) { return i.lbl + ': ' + txt(i); }).join('; ')) + '">' + partes + '</div>' + legendaCores(itens, txt, total);
+  }
+  /* área: a mesma linha do tempo, com o espaço embaixo preenchido */
+  function svgArea(pontos, o) {
+    var base = svgLinha(pontos, o), W = 320, H = 150, pl = 10, pr = 10, pt = 24, pb = 22, n = pontos.length, max = Math.max.apply(null, [1].concat(pontos.map(function (p) { return p.n; }))), a = H - pt - pb;
+    function X(i) { return pl + (n > 1 ? i * (W - pl - pr) / (n - 1) : (W - pl - pr) / 2); }
+    var poli = pontos.map(function (p, i) { return X(i).toFixed(1) + ',' + (H - pb - p.n / max * a).toFixed(1); }).join(' ');
+    var fundo = '<polygon points="' + X(0).toFixed(1) + ',' + (H - pb) + ' ' + poli + ' ' + X(n - 1).toFixed(1) + ',' + (H - pb) + '" fill="' + COR.base + '" fill-opacity="0.22"></polygon>';
+    return base.replace('<polyline', fundo + '<polyline');
+  }
   function barrasN(itens, txt) {
     var mx = Math.max.apply(null, [1].concat(itens.map(function (i) { return i.n; })));
-    return '<div class="list">' + itens.map(function (it) { return '<div><div class="row"><span class="nm">' + esc(it.lbl) + '</span><span class="nm">' + esc(txt(it)) + '</span></div><div class="bar"><i style="width:' + Math.max(2, Math.round(it.n / mx * 100)) + '%"></i></div></div>'; }).join('') + '</div>';
+    return '<div class="list">' + itens.map(function (it, k) { return '<div><div class="row"><span class="nm">' + esc(it.lbl) + '</span><span class="nm">' + esc(txt(it)) + '</span></div><div class="bar"><i style="width:' + Math.max(2, Math.round(it.n / mx * 100)) + '%;background:' + corItem(it, k) + '"></i></div></div>'; }).join('') + '</div>';
   }
   /* chave identifica o gráfico; itens [{ lbl, n, txt?, cor?, rot? }]; o: { tipos, padrao, fmt, serie (dados em sequência: uma cor só), centro, passo } */
   function grafico(chave, titulo, itens, o) {
     o = o || {};
-    var tipos = o.tipos || ['barras'], atual = S.graf[chave];
+    var tipos = o.tipos || ['barras'], atual = S.graf[chave], ordem = ['barras', 'colunas', 'pilha', 'rosca', 'linha', 'area'];
     if (tipos.indexOf(atual) < 0) atual = o.padrao || tipos[0];
+    tipos = tipos.slice().sort(function (a, b) { return ordem.indexOf(a) - ordem.indexOf(b); });   // os botões ficam sempre na mesma ordem
     var fmt = o.fmt || fmtN;
     function txt(it) { return it.txt || fmt(it.n); }
     var dados = itens.map(function (i) { return Object.assign({}, i, { rot: i.rot || i.lbl }); }), corpo;
     if (!dados.length || dados.every(function (i) { return !(i.n > 0); })) corpo = muted(o.vazio || 'Sem dados neste período.');
     else if (atual === 'barras') corpo = barrasN(dados, txt);
+    else if (atual === 'pilha') corpo = pilhaGraf(dados.filter(function (i) { return i.n > 0; }), txt);
+    else if (atual === 'area') corpo = svgArea(dados, { fmt: fmt, titulo: titulo });
     else if (atual === 'rosca') corpo = svgRosca(dados.filter(function (i) { return i.n > 0; }), fmt, o.centro);
     else if (atual === 'linha') corpo = svgLinha(dados, { fmt: fmt, titulo: titulo });
     else corpo = svgColunas(dados, { colorido: !o.serie, fmt: fmt, fmtCurto: o.fmtCurto, passo: o.passo, titulo: titulo }) + (o.serie ? '' : legendaCores(dados, txt, dados.reduce(function (s, i) { return s + i.n; }, 0)));
@@ -251,12 +270,12 @@
   }
   /* que gráficos cada painel oferece (o primeiro é o que aparece até a pessoa trocar): ranking pede barras, parte do todo pede rosca, tempo pede linha ou colunas */
   var CFG_GRAF = {
-    geral: { t1: { tipos: ['barras', 'colunas', 'rosca'], padrao: 'barras', fmt: nCopos }, t2: { tipos: ['rosca', 'barras', 'colunas'], padrao: 'rosca', fmt: fmtR } },
-    vendas: { t2: { tipos: ['rosca', 'barras', 'colunas'], padrao: 'rosca', fmt: nCopos }, t3: { tipos: ['colunas', 'barras', 'rosca'], padrao: 'colunas', fmt: fmtR }, t4: { tipos: ['barras', 'colunas'], padrao: 'barras', fmt: fmtR } },
-    destino: { t2: { tipos: ['colunas', 'barras', 'rosca'], padrao: 'colunas', fmt: nCopos } },
-    compras: { t1: { tipos: ['barras', 'rosca'], padrao: 'barras', fmt: fmtR }, t2: { tipos: ['linha', 'colunas', 'barras'], padrao: 'linha', serie: true, fmt: fmtR } },
-    producao: { t2: { tipos: ['barras', 'rosca'], padrao: 'barras', fmt: mlTxt } },
-    fin: { t2: { tipos: ['barras', 'rosca', 'colunas'], padrao: 'barras', fmt: fmtR } }
+    geral: { t1: { tipos: ['colunas', 'barras', 'pilha', 'rosca'], padrao: 'colunas', fmt: nCopos }, t2: { tipos: ['rosca', 'barras', 'pilha', 'colunas'], padrao: 'rosca', fmt: fmtR } },
+    vendas: { t2: { tipos: ['rosca', 'barras', 'pilha', 'colunas'], padrao: 'rosca', fmt: nCopos }, t3: { tipos: ['pilha', 'colunas', 'barras', 'rosca'], padrao: 'pilha', fmt: fmtR }, t4: { tipos: ['colunas', 'barras', 'pilha'], padrao: 'colunas', fmt: fmtR } },
+    destino: { t2: { tipos: ['pilha', 'colunas', 'barras', 'rosca'], padrao: 'pilha', fmt: nCopos } },
+    compras: { t1: { tipos: ['rosca', 'barras', 'pilha', 'colunas'], padrao: 'rosca', fmt: fmtR }, t2: { tipos: ['linha', 'area', 'colunas', 'barras'], padrao: 'linha', serie: true, fmt: fmtR } },
+    producao: { t2: { tipos: ['rosca', 'barras', 'pilha', 'colunas'], padrao: 'rosca', fmt: mlTxt } },
+    fin: { t2: { tipos: ['pilha', 'rosca', 'barras', 'colunas'], padrao: 'pilha', fmt: fmtR } }
   };
   var COR_DESTINO = { 'Vendido (pago)': 'pago', 'Grátis': 'gratis', 'Com desconto': 'desc', 'Consumo nosso': 'consumo', 'Perdido': 'perda' };
 
@@ -528,7 +547,7 @@
       card('<div class="row">' + '<button type="button" class="ghost" data-a="dia-mes" data-v="-1" aria-label="Mês anterior"' + (v.mes <= v.primeiroMes ? ' disabled' : '') + '>‹</button><span class="mid">' + MESES[b - 1].charAt(0).toUpperCase() + MESES[b - 1].slice(1) + ' de ' + a + '</span><button type="button" class="ghost" data-a="dia-mes" data-v="1" aria-label="Próximo mês"' + (v.mes >= v.mesHoje ? ' disabled' : '') + '>›</button></div>' +
         '<div class="chips" role="group" aria-label="Medida">' + [['c', 'Copos'], ['f', 'Faturamento'], ['l', 'Litros']].map(function (x) { return chip(x[1], m === x[0], 'dia-metrica', x[0]); }).join('') + '</div>' +
         '<div class="chips" role="group" aria-label="Pessoa">' + chip('Todos', !v.pessoa, 'pessoa', 'todos') + (v.usuarios || []).map(function (u) { return chip(u.nome, v.pessoa === u.id, 'pessoa', u.id); }).join('') + '</div>' + '<div class="calh">' + DIAS_SEM.map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div><div class="cal">' + cel + '</div>' + legenda, 'full cal-card') +
-      '<div class="dcol">' + tiles(v.tiles) + det + melhor + grafico('dias.mes', 'Por dia: ' + (m === 'f' ? 'faturamento' : m === 'l' ? 'café preparado' : 'copos'), colunasDoMes, { serie: true, tipos: ['colunas', 'linha'], padrao: 'colunas', passo: 5, fmt: function (nn) { return m === 'f' ? fmtR(nn * 100) : m === 'l' ? fmtN(nn) + ' L' : nn + (nn === 1 ? ' copo' : ' copos'); }, fmtCurto: function (nn) { return m === 'f' ? 'R$' + Math.round(nn) : m === 'l' ? fmtN(nn) : String(Math.round(nn)); } }) + '</div>' +
+      '<div class="dcol">' + tiles(v.tiles) + det + melhor + grafico('dias.mes', 'Por dia: ' + (m === 'f' ? 'faturamento' : m === 'l' ? 'café preparado' : 'copos'), colunasDoMes, { serie: true, tipos: ['colunas', 'area', 'linha'], padrao: 'colunas', passo: 5, fmt: function (nn) { return m === 'f' ? fmtR(nn * 100) : m === 'l' ? fmtN(nn) + ' L' : nn + (nn === 1 ? ' copo' : ' copos'); }, fmtCurto: function (nn) { return m === 'f' ? 'R$' + Math.round(nn) : m === 'l' ? fmtN(nn) : String(Math.round(nn)); } }) + '</div>' +
       grafico('dias.semana', 'Dia da semana: média de copos nos dias de venda', v.semana.map(function (s) { return { lbl: s.lbl, n: s.n, txt: s.val }; }), { serie: true, tipos: ['colunas', 'barras'], padrao: 'colunas', fmt: function (n) { return fmtN(n) + ' copos'; }, fmtCurto: function (n) { return fmtN(n); } }) + card(total) + '</div>');
   }
   function telaPaineis() {
@@ -539,14 +558,14 @@
     function bloco(slot) {
       var t = v[slot], b = v['b' + slot.slice(1)], c = K[slot];
       if (!t) return '';
-      if (slot === 't1' && v.colunas && v.colunas.length) return grafico(subP + '.hora', t, v.colunas.map(function (x) { return { lbl: x.lbl, n: x.n }; }), { serie: true, tipos: ['colunas', 'linha', 'barras'], padrao: 'colunas', fmt: nVendas, fmtCurto: String });
+      if (slot === 't1' && v.colunas && v.colunas.length) return grafico(subP + '.hora', t, v.colunas.map(function (x) { return { lbl: x.lbl, n: x.n }; }), { serie: true, tipos: ['colunas', 'area', 'linha', 'barras'], padrao: 'colunas', fmt: nVendas, fmtCurto: String });
       if (slot === 't1' && v.rosca) return grafico(subP + '.rosca', t, v.rosca.map(function (x) { return { lbl: x.lbl, n: x.n, cor: x.cor }; }), { tipos: ['rosca', 'barras', 'colunas'], padrao: 'rosca', fmt: mlTxt, centro: 'de café' });
       if (c && b.every(function (x) { return typeof x.n === 'number'; })) return grafico(subP + '.' + slot, t, b.map(function (x) { return { lbl: x.lbl, n: x.n, txt: x.val, cor: COR_DESTINO[x.lbl], rot: c.serie ? x.lbl.split(' \u00B7 ')[0] : undefined }; }), c);
       return card(lbl(t) + barras(b) + (b.length ? '' : muted('Sem dados neste período.')));
     }
     return corpo('<div class="chips" role="group" aria-label="Período">' + [['hoje', 'Hoje'], ['7d', '7 dias'], ['tudo', 'Tudo']].map(function (x) { return chip(x[1], S.periodo === x[0], 'periodo', x[0]); }).join('') + '</div>' + muted(nota) + (v.comPessoa ? '<div class="chips" role="group" aria-label="Pessoa">' + chip('Todos', !v.pessoa, 'pessoa', 'todos') + (v.usuarios || []).map(function (u) { return chip(u.nome, v.pessoa === u.id, 'pessoa', u.id); }).join('') + '</div>' : '') +
       tiles(v.tiles) +
-      (v.serie ? grafico('geral.serie', 'Faturamento por dia (últimos 14 dias)', v.serie.map(function (p) { return { lbl: dmData(p.dia), n: p.f }; }), { serie: true, tipos: ['linha', 'colunas'], padrao: 'linha', fmt: fmtR, fmtCurto: function (n) { return 'R$' + Math.round(n / 100); } }) : '') +
+      (v.serie ? grafico('geral.serie', 'Faturamento por dia (últimos 14 dias)', v.serie.map(function (p) { return { lbl: dmData(p.dia), n: p.f }; }), { serie: true, tipos: ['linha', 'area', 'colunas'], padrao: 'linha', fmt: fmtR, fmtCurto: function (n) { return 'R$' + Math.round(n / 100); } }) : '') +
       bloco('t1') + bloco('t2') + bloco('t3') + bloco('t4'));
   }
 
@@ -694,7 +713,7 @@
       card(rotulo('cli-motivo', 'Anotação (por que compra, o que gosta)') + entrada('cli-motivo', motivo, { ph: 'Ex.: toma de manhã, gosta com canela' }) + btn('Salvar anotação', 'cli-motivo-salvar', null, { dis: S.ocupado || String(motivo).trim() === d.motivo }));
     if (d.copos > 0) {
       h += tiles([{ lbl: 'Copos', val: String(d.copos) }, { lbl: 'Faturamento', val: fmtR(d.fat) }, { lbl: 'Dias que veio', val: String(d.nDias) }, { lbl: 'Última vez', val: d.ultima || '\u2014' }]) +
-        grafico('cli.produtos', 'O que mais compra', d.porProduto.map(function (x) { return { lbl: x.lbl, n: x.n, txt: x.val }; }), { tipos: ['rosca', 'barras', 'colunas'], padrao: 'rosca', fmt: nCopos, centro: 'compras' }) +
+        grafico('cli.produtos', 'O que mais compra', d.porProduto.map(function (x) { return { lbl: x.lbl, n: x.n, txt: x.val }; }), { tipos: ['rosca', 'barras', 'pilha', 'colunas'], padrao: 'rosca', fmt: nCopos, centro: 'compras' }) +
         grafico('cli.semana', 'Dias da semana (copos)', d.porSemana.map(function (x) { return { lbl: x.lbl, n: x.n, txt: x.val }; }), { serie: true, tipos: ['colunas', 'barras'], padrao: 'colunas', fmt: nCopos });
     }
     return '<div class="sec">' + h + '</div>';
