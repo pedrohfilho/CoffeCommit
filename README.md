@@ -8,7 +8,7 @@
 
 ## Por que este projeto existe
 
-Eu e o Digo vendemos café em copos de 50 ml (R$ 1,00) e 200 ml (R$ 2,00) (normal, com canela e com leite), com a meta de operar até o Natal de 2026. A operação é pequena de propósito: dá para errar, medir e corrigir com custo baixo, e cada decisão de código que tomo esbarra num problema de verdade:
+Eu e o Digo vendemos café em copos de 50 ml (R$ 1,00) e 200 ml (R$ 2,00), qualquer sabor (normal, com canela e com leite), com a meta de operar até o Natal de 2026. A operação é pequena de propósito: dá para errar, medir e corrigir com custo baixo, e cada decisão de código que tomo esbarra num problema de verdade:
 
 - o estoque fica dividido entre as nossas duas casas, e **cada um prepara com o que tem**;
 - o café é feito em litros na cafeteira, mas **vendido em mililitros**;
@@ -251,7 +251,7 @@ Desfazer cria uma linha em `estorno`, muda o status do registro para `ESTORNADO`
 
 **Receita por pessoa e por tipo de café.** Para mim, "café" é o produto: pó + água, ou pó + água + leite no caso do café com leite. Por isso cada pessoa tem duas receitas por litro, a do **café** e a do **café com leite** (por exemplo, 600 ml de água + 400 ml de leite), e ao registrar um preparo eu digo o que foi preparado. Quem prepara usa a própria receita do tipo escolhido, se tiver; senão, a da casa. O preparo guarda o tipo, o que a receita mandava (`qtd_padrao`) e o que foi usado (`qtd_real`).
 
-**Material sem controle de estoque.** A água, por exemplo, tem `controla_estoque = FALSO`: o consumo é registrado, mas ela não aparece em Estoque nem em Compra e nunca trava nada. Ela é só **custo**: tem um preço de referência (galão de 20 L a R$ 8,50, que se ajusta em Cadastros › Materiais) e o custo da água de cada preparo fica gravado e entra no Resultado.
+**Material sem controle de estoque.** A água, por exemplo, tem `controla_estoque = FALSO`: o consumo é registrado, mas ela não aparece em Estoque nem em Compra e nunca trava nada. Ela é só **custo**: tem um preço de referência (R$ 0,0074 por litro, a tarifa residencial normal da Embasa, que se ajusta em Cadastros › Materiais) e o custo da água de cada preparo fica gravado e entra no Resultado.
 
 **Clube de fidelidade.** A tela de Venda **não** liga cliente (travava o balcão e não mostrava quem já existe); o vínculo (`venda.cliente_id`) existe no servidor para um cruzamento futuro, se valer a pena. A aba Clientes é o clube: a lista de clientes já traz o que cada um compra e, ao abrir um cliente, ficam o cadastro, o crédito e os números. A análise usa só as vendas ligadas: copos, faturamento, dias que veio, café preferido, dias da semana, últimas compras e uma anotação escrita à mão (`cliente.motivo`). O cliente ganha um **número do sorteio** ao fazer algo específico (hoje, tomar 2 cafés no dia, regra `clube.copos_para_numero`): o sistema só **sugere** e quem dá o número sou eu. O número dado não tem venda nem valor (`venda_id` vazio, `valor_centavos` 0) e pode ser cancelado; o que veio de venda só sai desfazendo a venda.
 
@@ -318,7 +318,7 @@ O simulador reproduz detalhes que costumam esconder bugs no Planilhas real: text
 
 ## Qualidade
 
-- **730 verificações automáticas** das regras: venda, preparo, compra, estoque, fechamento, estorno, sorteio, desconto, consumo, painéis, auditoria, DDL e migração de planilhas já instaladas.
+- **731 verificações automáticas** das regras: venda, preparo, compra, estoque, fechamento, estorno, sorteio, desconto, consumo, painéis, auditoria, DDL e migração de planilhas já instaladas.
 - **Painéis conferidos contra os registros:** os testes recalculam cada número de cada painel direto das linhas e comparam com a tela.
 - **Teste diferencial do cache:** depois de cada uma de mais de vinte operações, todas as telas lidas com cache são comparadas com as lidas direto da planilha e precisam ser idênticas. Cache sumindo, corrompido ou falhando também não pode mudar resultado.
 - **Orçamento de chamadas:** os testes falham se uma gravação passar de 8 chamadas à planilha ou se abrir uma tela já vista tocar na planilha.

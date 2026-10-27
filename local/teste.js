@@ -19,7 +19,8 @@ function usarMundoDeTeste(ctx) {
   ctx.sementes_ = function (agora) {
     const S = orig(agora);
     S.produto_variante.forEach((v) => { if (['var-n100', 'var-c100', 'var-l100'].includes(v.id)) v.tamanho_ml = 100; });
-    S.preco_venda.forEach((p) => { if (p.variante_id === 'var-n100') p.preco_centavos = 150; });
+    const antigos = { 'var-n100': 150, 'var-c50': 150, 'var-l50': 200, 'var-l100': 250 };   // preços do mundo de teste (os reais são R$ 1,00 e R$ 2,00)
+    S.preco_venda.forEach((p) => { if (antigos[p.variante_id] !== undefined) p.preco_centavos = antigos[p.variante_id]; });
     S.material.forEach((m) => { if (m.id === 'mat-copo200') m.nome = 'Copo 200 ml (serve 100 ml)'; });
     S.promocao.forEach((p) => { if (p.id === 'promo-1') p.nome = 'Combo 2 cafés 100 ml'; });
     return S;
@@ -1347,13 +1348,13 @@ grupo('canela em colher e água só como custo');
   ok(rs.length === 2 && rs.every((x) => x.g_por_colher_canela === 3), 'planilha antiga: as receitas existentes ganham 3 g por colher de canela', rs.map((x) => x.g_por_colher_canela));
   // água: só custo, a conta padrão separada, sem estoque
   const ag = T.db().t('material').find((m) => m.id === 'mat-agua');
-  ok(ag.controla_estoque === false && ag.preco_padrao_centavos === 850 && ag.pacote_qtd === 20000, 'a água vem como custo de referência (galão de 20 L a R$ 8,50) e sem controle de estoque', ag);
+  ok(ag.controla_estoque === false && ag.preco_padrao_centavos === 740 && ag.pacote_qtd === 1000000, 'a água vem como custo de referência (R$ 0,0074 por litro, tarifa da Embasa) e sem controle de estoque', ag);
   const pr = T.ch(T.pedro, 'preparo.registrar', { id: T.uid(), litros: 1, quem: 'usr-pedro' });
   const pid = T.db().t('preparo').slice(-1)[0].id, ca = T.db().t('preparo_consumo').find((c) => c.preparo_id === pid && c.material_id === 'mat-agua');
-  ok(pr.ok && ca && ca.qtd_real_qtd === 1000 && ca.custo_atual_centavos === 43 && ca.custo_padrao_centavos === 43, '1 L de café leva 1.000 ml de água, que custam R$ 0,43 (gravado no preparo)', ca);
+  ok(pr.ok && ca && ca.qtd_real_qtd === 1000 && ca.custo_atual_centavos === 1 && ca.custo_padrao_centavos === 1, '1 L de café leva 1.000 ml de água, que custam 0,74 centavo (arredonda para R$ 0,01 e fica gravado no preparo)', ca);
   ok(T.db().t('movimento_estoque').every((m) => !(m.origem_id === pid && m.material_id === 'mat-agua')) && !/Água/.test(pr.msg), 'a água não entra no livro do estoque nem vira aviso de falta');
   const lit = T.ch(T.pedro, 'ver', { tela: 'paineis', sub: 'fin', periodo: 'tudo' }), custoAgua = T.db().t('preparo_consumo').filter((c) => c.material_id === 'mat-agua').reduce((s, c) => s + c.custo_atual_centavos, 0);
-  ok(custoAgua >= 43 && lit.ok, 'o custo da água entra no Resultado como parte do custo do preparo', custoAgua);
+  ok(custoAgua >= 1 && lit.ok, 'o custo da água entra no Resultado como parte do custo do preparo', custoAgua);
   ok(T.ch(T.pedro, 'sistema.auditar').limpo && T3.ch(T3.pedro, 'sistema.auditar').limpo, 'auditoria limpa');
 }
 
@@ -1659,6 +1660,7 @@ grupo('sementes reais: copo de 50 ml a R$ 1,00 e de 200 ml a R$ 2,00');
   const db = T.db(), vars = db.t('produto_variante'), preco = (id) => db.t('preco_venda').find((p) => p.variante_id === id).preco_centavos, tam = (id) => vars.find((v) => v.id === id).tamanho_ml;
   ok(tam('var-n50') === 50 && preco('var-n50') === 100 && tam('var-n100') === 200 && preco('var-n100') === 200, 'café normal: 50 ml por R$ 1,00 e 200 ml por R$ 2,00', [tam('var-n50'), preco('var-n50'), tam('var-n100'), preco('var-n100')]);
   ok(['var-c100', 'var-l100'].every((id) => tam(id) === 200) && ['var-c50', 'var-l50'].every((id) => tam(id) === 50), 'com canela e com leite também em 50 ml e 200 ml');
+  ok(['var-n50', 'var-c50', 'var-l50'].every((id) => preco(id) === 100) && ['var-n100', 'var-c100', 'var-l100'].every((id) => preco(id) === 200), 'todo café de 50 ml custa R$ 1,00 e todo de 200 ml custa R$ 2,00', vars.map((v) => [v.id, preco(v.id)]));
   ok(db.achar('material', 'mat-copo200').nome === 'Copo 200 ml', 'o copo grande se chama Copo 200 ml');
   const a = T.ch(T.pedro, 'sistema.auditar'), v = ver(T, T.pedro, 'venda');
   ok(a.limpo && v.saldoMl === 700, 'os exemplos carregam com os tamanhos reais: 7 copos, 800 ml vendidos, 700 ml de café pronto', [a.erros, v.saldoMl]);

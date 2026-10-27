@@ -110,7 +110,7 @@ function sementes_(agora) {
   S.material = [
     ['mat-cafe', 'CAFE', 'Café em pó', 'g', 500, 500, 2700, 50],
     ['mat-filtro', 'FILTRO', 'Filtro de papel', 'un', 10, 30, 900, 1],
-    ['mat-agua', 'AGUA', 'Água', 'ml', 0, 20000, 850, 500],   // só custo (não controla estoque): referência de galão de 20 L a R$ 8,50, ajustável em Cadastros › Materiais
+    ['mat-agua', 'AGUA', 'Água', 'ml', 0, 1000000, 740, 500],   // só custo (não controla estoque): R$ 7,40 por m³ = R$ 0,0074 por litro (tarifa residencial normal da Embasa), ajustável em Cadastros › Materiais
     ['mat-leite', 'LEITE', 'Leite', 'ml', 1000, 1000, 550, 100],
     ['mat-canela', 'CANELA', 'Canela em pó', 'g', 10, 50, 800, 5],
     ['mat-acucar', 'ACUCAR', 'Açúcar', 'g', 500, 1000, 450, 50],
@@ -124,8 +124,8 @@ function sementes_(agora) {
   ];
   var VARS = [
     ['var-n50', 'prd-normal', 50, 100, 0, 0, 'mat-copo50'], ['var-n100', 'prd-normal', 200, 200, 0, 0, 'mat-copo200'],   // os ids ficam (n100 = o copo grande); o tamanho real é 200 ml
-    ['var-c50', 'prd-canela', 50, 150, 0, 0.5, 'mat-copo50'], ['var-c100', 'prd-canela', 200, 200, 0, 1, 'mat-copo200'],
-    ['var-l50', 'prd-leite', 50, 200, 0, 0, 'mat-copo50'], ['var-l100', 'prd-leite', 200, 250, 0, 0, 'mat-copo200']
+    ['var-c50', 'prd-canela', 50, 100, 0, 0.5, 'mat-copo50'], ['var-c100', 'prd-canela', 200, 200, 0, 1, 'mat-copo200'],
+    ['var-l50', 'prd-leite', 50, 100, 0, 0, 'mat-copo50'], ['var-l100', 'prd-leite', 200, 200, 0, 0, 'mat-copo200']   // padrão real: todo café de 50 ml é R$ 1,00 e todo de 200 ml é R$ 2,00
   ];
   S.produto_variante = VARS.map(function (v) { return c({ id: v[0], produto_id: v[1], tamanho_ml: v[2], ativo: true }); });
   S.preco_venda = VARS.map(function (v) { return { id: 'pv-' + v[0].slice(4), variante_id: v[0], preco_centavos: v[3], vigente_de: v0, vigente_ate: null, criado_em: agora, criado_por: 'usr-sistema' }; });
