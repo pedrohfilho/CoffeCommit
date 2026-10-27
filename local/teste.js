@@ -1674,6 +1674,35 @@ grupo('sementes reais: copo de 50 ml a R$ 1,00 e de 200 ml a R$ 2,00');
   ok(T.ch(T.pedro, 'sistema.auditar').limpo, 'auditoria limpa depois de vender e preparar');
 }
 
+grupo('água automática: 1 L de café = 1.000 ml, menos o leite (dá para desligar)');
+{
+  const T = iniciar({ exemplos: true });
+  const agua = (id) => (T.db().t('preparo_consumo').find((c) => c.preparo_id === id && c.material_id === 'mat-agua') || {}).qtd_real_qtd;
+  const vig = (u, base) => T.db().t('receita_cafe').find((x) => (x.usuario_id || null) === u && x.base === base && !x.vigente_ate);
+  ok(T.db().t('receita_cafe').every((r) => r.agua_automatica === true), 'as receitas da casa vêm com a água automática ligada');
+  const c0 = ver(T, T.pedro, 'cadastros', 'receitas').escopos[0];
+  ok(c0.receita.aguaAuto === true && c0.receita.agua === 1000 && c0.receitaLeite.agua === 600, 'a tela traz a água já calculada: 1.000 ml no café e 600 ml no café com leite', [c0.receita.agua, c0.receitaLeite.agua]);
+  ok(T.ch(T.pedro, 'receita.salvar', { usuario_id: 'usr-pedro', base: 'CAFE_LEITE', leite_ml_por_litro: 250 }).ok && vig('usr-pedro', 'CAFE_LEITE').agua_ml_por_litro === 750, 'mudar só o leite (250 ml) recalcula a água sozinha: 750 ml', vig('usr-pedro', 'CAFE_LEITE'));
+  const id1 = T.uid();
+  ok(T.ch(T.pedro, 'preparo.registrar', { id: id1, litros: 2, quem: 'usr-pedro', plano: {}, base: 'CAFE_LEITE' }).ok && agua(id1) === 1500, 'o preparo de 2 L usa 1.500 ml de água (750 por litro)', agua(id1));
+  ok(/não pode passar/.test(T.ch(T.pedro, 'receita.salvar', { usuario_id: 'usr-pedro', base: 'CAFE_LEITE', leite_ml_por_litro: 1200 }).erro), 'com água automática, leite acima de 1.000 ml por litro é recusado');
+  // desligar: o Digo mede a água do jeito dele
+  ok(T.ch(T.pedro, 'receita.salvar', { usuario_id: 'usr-digo', base: 'CAFE_LEITE', agua_automatica: false, agua_ml_por_litro: 500, leite_ml_por_litro: 400 }).ok, 'o Digo desliga a água automática e informa 500 ml');
+  const rd = vig('usr-digo', 'CAFE_LEITE'), id2 = T.uid();
+  ok(rd.agua_automatica === false && rd.agua_ml_por_litro === 500, 'a receita dele guarda água manual de 500 ml', rd);
+  ok(T.ch(T.digo, 'preparo.registrar', { id: id2, litros: 1, quem: 'usr-digo', plano: {}, base: 'CAFE_LEITE' }).ok && agua(id2) === 500, 'o preparo do Digo usa os 500 ml digitados, sem recalcular', agua(id2));
+  ok(ver(T, T.pedro, 'cadastros', 'receitas').escopos.find((e) => e.id === 'usr-digo').receitaLeite.aguaAuto === false, 'a tela mostra que a água do Digo é manual');
+  ok(T.ch(T.pedro, 'receita.salvar', { usuario_id: 'usr-digo', base: 'CAFE_LEITE', leite_ml_por_litro: 300 }).ok && vig('usr-digo', 'CAFE_LEITE').agua_automatica === false && vig('usr-digo', 'CAFE_LEITE').agua_ml_por_litro === 500, 'mudar o leite do Digo não mexe na água manual dele');
+  ok(T.ch(T.pedro, 'receita.salvar', { usuario_id: 'usr-digo', base: 'CAFE_LEITE', agua_automatica: true }).ok && vig('usr-digo', 'CAFE_LEITE').agua_ml_por_litro === 700, 'ligar de novo recalcula: 1.000 - 300 de leite = 700 ml');
+  ok(T.ch(T.pedro, 'sistema.auditar').limpo, 'a auditoria segue limpa');
+  // planilha instalada antes: as receitas existentes ganham a água automática
+  const T3 = iniciar({ exemplos: true }), shR = T3.ss.getSheetByName('receita_cafe'), nR = T3.ctx.esquemaTabela_('receita_cafe').colunas.length;
+  shR.getRange(1, nR).setValue(''); shR.getRange(2, nR, 5, 1).clearContent();
+  T3.ctx.instalarPlanilha_(T3.ss, new Date().toISOString());
+  const rs = new T3.ctx.Banco(T3.ss, { semCache: true }).t('receita_cafe');
+  ok(rs.length === 2 && rs.every((x) => x.agua_automatica === true), 'planilha antiga: as receitas existentes ganham a água automática', rs.map((x) => x.agua_automatica));
+}
+
 grupo('todas as telas respondem');
 {
   const T = iniciar({ exemplos: true });

@@ -180,6 +180,8 @@ function sorteioAberto_(db, ctx, criar) {
   return novo;
 }
 
+/* água por litro: automática = o que sobra de 1.000 ml depois do leite (1 L de café = 1.000 ml); manual = o número digitado na receita */
+function aguaPorLitro_(r) { return r.agua_automatica === false ? (r.agua_ml_por_litro || 0) : Math.max(0, 1000 - (r.leite_ml_por_litro || 0)); }
 /* consumo de material de um preparo, pela receita de quem prepara e pelo plano de copos */
 function consumoPreparo_(db, ts, litros, plano, usuarioId, base) {
   var rc = receitaVigente_(db, ts, usuarioId, base), mp = materiaisChave_(db, ts), c = {}, cafePlano = 0, copos = 0;
@@ -187,7 +189,7 @@ function consumoPreparo_(db, ts, litros, plano, usuarioId, base) {
   add(mp.cafe, litros * rc.colheres_por_litro * rc.g_por_colher);
   add(mp.filtro, Math.ceil(litros * rc.filtros_por_litro - 1e-9));
   add(mp.acucar, litros * rc.acucar_g_por_litro);
-  add(mp.agua, litros * rc.agua_ml_por_litro);
+  add(mp.agua, litros * aguaPorLitro_(rc));
   add(mp.leite, litros * (rc.leite_ml_por_litro || 0));          // o leite entra no preparo (café com leite), nunca no copo
   var vars = mapa_(db, 'produto_variante');
   Object.keys(plano).forEach(function (vid) {
@@ -786,6 +788,12 @@ function cmdReceita_(db, ctx, p) {
     nova[k] = base[k] || PADRAO_RECEITA_[k] || 0;
     if (p[k] !== undefined) { var n = Number(p[k]); if (!(n >= CAMPOS_RECEITA_[k] && n <= 100000)) falha_('Valor inválido na receita (' + k.replace(/_/g, ' ') + ').'); nova[k] = r3_(n); }
   });
+  var auto = p.agua_automatica !== undefined ? !!p.agua_automatica : (p.agua_ml_por_litro !== undefined ? false : base.agua_automatica !== false);   // informar a água à mão desliga o automático
+  if (auto) {
+    if (nova.leite_ml_por_litro > 1000) falha_('Com água automática, o leite não pode passar de 1.000 ml por litro.');
+    nova.agua_ml_por_litro = aguaPorLitro_({ agua_automatica: true, leite_ml_por_litro: nova.leite_ml_por_litro });   // o valor gravado acompanha o cálculo
+  }
+  nova.agua_automatica = auto;
   if ((base.usuario_id || null) === dono) fecharVigencia_(db, ctx, 'receita_cafe', base);
   db.anexar('receita_cafe', [nova_(ctx, Object.assign(nova, { usuario_id: dono, vigente_de: ts, vigente_ate: null, base: tipo }))]);
   return { msg: (dono ? 'Receita de ' + mapa_(db, 'usuario')[dono].nome : 'Receita padrão da casa') + (tipo === 'CAFE_LEITE' ? ' (café com leite)' : '') + ' atualizada. Preparos antigos mantêm a receita da época.' };
